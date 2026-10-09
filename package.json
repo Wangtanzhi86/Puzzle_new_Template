@@ -1,0 +1,15 @@
+{
+  "name": "Puzzle_new",
+  "uuid": "bcae1f44-7c88-4231-b668-79f1fe2a39ba",
+  "creator": {
+    "version": "3.8.8"
+  },
+  "scripts": {
+    "pack": "node tools/pack-playable.mjs",
+    "pack:report": "node tools/pack-playable.mjs --report"
+  },
+  "devDependencies": {
+    "@jsquash/png": "^3.1.1",
+    "@jsquash/webp": "^1.5.0"
+  }
+}

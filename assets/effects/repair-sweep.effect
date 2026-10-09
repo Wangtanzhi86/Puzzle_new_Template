@@ -1,0 +1,110 @@
+// 修复后的一道斜向扫光。挂在「修复后的图」上的一个同尺寸叠加节点：光带只出现在图片
+// 轮廓内（拿贴图 alpha 裁），加法混合，所以是「亮起来」而不是贴一块白。
+//
+// 光带几何算在世界坐标里：Sprite 的 a_position 到顶点着色器时已经乘过 node.worldMatrix
+// （引擎在 simple.updateWorldVerts 里预先乘好），所以片元里直接拿它投影，光带在屏幕上
+// 就是一条笔直的斜线。多个槽位共用同一个进度值即可对齐成一道横扫全场的波前。
+//
+// sweepAxis 由 CPU 按本次范围算好塞进来：xy 扫描方向 / z 起点投影 / w 1÷跨度。
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: repair-sweep-vs:vert
+      frag: repair-sweep-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one
+          blendSrcAlpha: zero
+          blendDstAlpha: one
+      rasterizerState:
+        cullMode: none
+      properties:
+        sweepColor: { value: [1.0, 1.0, 1.0, 0.8], editor: { type: color } }
+        sweepParams: { value: [0.0, 0.18, 0.0, 0.0] }
+        sweepAxis: { value: [0.7071, 0.7071, 0.0, 1.0] }
+}%
+
+CCProgram repair-sweep-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+  out vec2 world;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+    world = a_position.xy;
+
+    return pos;
+  }
+}%
+
+CCProgram repair-sweep-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+
+  in vec4 color;
+  in vec2 world;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  #endif
+
+  uniform RepairSweep {
+    vec4 sweepColor;   // rgb 光色 / a 光带峰值强度
+    vec4 sweepParams;  // x 光带中心(0..1) / y 光带半宽(归一化) / z 整图补光 / w 备用
+    vec4 sweepAxis;    // xy 扫描方向 / z 起点投影 / w 1÷跨度
+  };
+
+  vec4 frag () {
+    #if USE_TEXTURE
+      float a0 = CCSampleWithAlphaSeparated(cc_spriteTexture, uv0).a;
+
+      float t = (world.x * sweepAxis.x + world.y * sweepAxis.y - sweepAxis.z) * sweepAxis.w;
+      float d = abs(t - sweepParams.x);
+      // 内圈 35% 半宽保持满亮，再往外收到 0：一条中间实、两边虚的光带
+      float band = 1.0 - smoothstep(sweepParams.y * 0.35, sweepParams.y, d);
+
+      float e = clamp(band * sweepColor.a + sweepParams.z, 0.0, 1.0);
+      return vec4(sweepColor.rgb, e * a0 * color.a);
+    #else
+      return vec4(0.0);
+    #endif
+  }
+}%

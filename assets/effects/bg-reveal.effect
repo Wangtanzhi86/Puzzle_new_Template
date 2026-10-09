@@ -1,0 +1,105 @@
+// 「完成背景」从拼图区中心以圆形羽化向外扩散、盖住原来的底图。
+//
+// 挂在 Scene_BG 下一个同尺寸的子节点上（贴图就是完成背景那张），只输出圆内的像素：
+// 圈外 alpha = 0，露出下面的底图；圆的边缘走 smoothstep，不是硬边。
+//
+// 半径算在世界坐标里，和 RepairSweep 同一套路数：Sprite 的 a_position 进顶点着色器时
+// 已经乘过 node.worldMatrix（引擎在 simple.updateWorldVerts 里预先乘好，
+// 2d/assembler/sprite/simple.ts:68），所以片元里直接拿它算距离 —— 节点不是正方形
+// （580×748.6），在 uv 里算半径会变成椭圆。顺便绕开动态图集那条坑。
+//
+// revealParams / revealEdge 由 CPU 按本次尺寸算好塞进来。
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: bg-reveal-vs:vert
+      frag: bg-reveal-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        revealParams: { value: [0.0, 0.0, 0.0, 1.0] }
+        revealEdge: { value: [0.35, 0.0, 0.0, 0.0] }
+}%
+
+CCProgram bg-reveal-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+  out vec2 world;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+    world = a_position.xy;
+
+    return pos;
+  }
+}%
+
+CCProgram bg-reveal-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+
+  in vec4 color;
+  in vec2 world;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  #endif
+
+  uniform BgReveal {
+    vec4 revealParams;  // xy 圆心（世界坐标）/ z 进度半径（0 = 圆心，1 = 够到四角）/ w 1÷跨度
+    vec4 revealEdge;    // x 羽化半宽（相对跨度）
+  };
+
+  vec4 frag () {
+    #if USE_TEXTURE
+      vec4 o = CCSampleWithAlphaSeparated(cc_spriteTexture, uv0);
+      float d = length(world - revealParams.xy) * revealParams.w;
+      float m = 1.0 - smoothstep(revealParams.z - revealEdge.x, revealParams.z + revealEdge.x, d);
+      return vec4(o.rgb, o.a * m * color.a);
+    #else
+      return vec4(0.0);
+    #endif
+  }
+}%

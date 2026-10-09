@@ -1,0 +1,11 @@
+{
+  "name": "playable-builder",
+  "title": "Playable Builder",
+  "package_version": 2,
+  "version": "1.0.0",
+  "description": "构建 web-mobile 后自动打成 AppLovin 单文件 HTML",
+  "author": "project",
+  "contributions": {
+    "builder": "./builder.js"
+  }
+}

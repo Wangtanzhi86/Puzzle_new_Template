@@ -1,0 +1,27 @@
+{
+  "host": "127.0.0.1",
+  "port": 20168,
+  "portMode": "project",
+  "clientConfigEntries": {
+    "claude_code": {
+      "serverName": "cocos-puzzle-new-503684",
+      "url": "http://127.0.0.1:20168/",
+      "configPath": "C:\\Users\\Administrator\\.claude.json",
+      "projectIdentity": "5036849825f6f2c9db2cd1c2"
+    }
+  },
+  "toolProfile": "core",
+  "enabledTools": [],
+  "disabledTools": [],
+  "enabledToolCategories": [],
+  "disabledToolCategories": [],
+  "enableSessions": false,
+  "enableConsoleLogging": true,
+  "executeJavascriptSafetyChecks": true,
+  "autostart": true,
+  "maxInteractionLogEntries": 50,
+  "lastClientTargetId": "claude_code",
+  "activeToolProfileName": "",
+  "savedToolProfiles": [],
+  "language": "auto"
+}

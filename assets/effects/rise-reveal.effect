@@ -1,0 +1,108 @@
+// 从下往上「长出来」的羽化显示，直接当 Sprite 的自定义材质用（不是叠加节点），所以它得
+// 替 sprite 把活全干了：采样贴图、乘顶点色、标准 alpha 混合。乘顶点色这一步不能省 ——
+// UIOpacity 是引擎在 batcher 里写进顶点 alpha 的（batcher-2d.ts 的 updateOpacity），
+// 不乘它，节点上的透明度就整条失效。
+//
+// 显示线比在世界坐标里，不比 uv：Sprite 的 a_position 到顶点着色器时已经乘过 node.worldMatrix
+// （引擎在 simple.updateWorldVerts 里预先乘好），片元里直接拿它比大小即可。这样顺带绕开了
+// 动态图集 —— 拿 uv 当坐标系就得管图集重排（§14 那条），而且贴图不用关 packable。
+// 转屏时节点的世界尺寸会变，CPU 每帧重算 reveal 就行。
+//
+// reveal: x 显示线中心（世界 y）/ y 1÷羽化带宽（世界单位）/ z,w 备用。
+// 显示线上下各半个带宽：线下不透明、线上全透明，中间 smoothstep。
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: rise-reveal-vs:vert
+      frag: rise-reveal-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        reveal: { value: [0.0, 1.0, 0.0, 0.0] }
+}%
+
+CCProgram rise-reveal-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+  out vec2 world;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+    world = a_position.xy;
+
+    return pos;
+  }
+}%
+
+CCProgram rise-reveal-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+
+  in vec4 color;
+  in vec2 world;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  #endif
+
+  uniform RiseReveal {
+    vec4 reveal;
+  };
+
+  vec4 frag () {
+    vec4 o = vec4(1.0, 1.0, 1.0, 1.0);
+
+    #if USE_TEXTURE
+      o *= CCSampleWithAlphaSeparated(cc_spriteTexture, uv0);
+    #endif
+
+    // 显示线往下 1、往上 0，中间平滑过渡；两端都饱和，所以线上下的实心部分不会被削掉
+    float k = clamp((reveal.x - world.y) * reveal.y + 0.5, 0.0, 1.0);
+    o.a *= k * k * (3.0 - 2.0 * k);
+
+    o *= color;
+    return o;
+  }
+}%

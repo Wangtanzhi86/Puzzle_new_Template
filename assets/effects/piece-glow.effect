@@ -1,0 +1,116 @@
+// 碎片白边发光。取自身 alpha，八方向 × 两档半径取最大值得轮廓外的羽化光晕，
+// 再叠一圈紧贴轮廓内侧的高光，让边「亮起来」而不只是浮在上面的一个圈。
+//
+// 承载它的 Glow 子节点比碎片 quad 大一圈（四周腾出画光晕的地方，否则贴着 quad
+// 边的那段轮廓会被裁平）。所以采样前要先用 uvScale 把 uv 缩回碎片自己的坐标系，
+// 不然光晕轮廓会和碎片错位。
+//
+// uvScale / glowParams 都由 CPU 按碎片尺寸算好塞进来：贴图分辨率、碎片大小、
+// 拖起后的放大倍数各关不一样，写死常数必然对不齐。
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: sprite-vs:vert
+      frag: piece-glow-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        glowColor: { value: [1.0, 1.0, 1.0, 1.0], editor: { type: color } }
+        glowParams: { value: [1.0, 0.01, 0.01, 0.6] }
+        uvScale: { value: [1.0, 1.0] }
+}%
+
+CCProgram sprite-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+
+    return pos;
+  }
+}%
+
+CCProgram piece-glow-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+
+  in vec4 color;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  #endif
+
+  uniform PieceGlow {
+    vec4 glowColor;
+    vec4 glowParams;   // x 强度 / yz 一档半径的 uv 步长 / w 轮廓内高光权重
+    vec2 uvScale;
+  };
+
+  vec4 frag () {
+    #if USE_TEXTURE
+      vec2 uv = (uv0 - 0.5) * uvScale + 0.5;
+      float a0 = CCSampleWithAlphaSeparated(cc_spriteTexture, uv).a;
+
+      vec2 span = glowParams.yz;
+      float halo = 0.0;
+      for (int i = 0; i < 8; i++) {
+        float ang = float(i) * 0.7853981634;
+        vec2 dir = vec2(cos(ang), sin(ang));
+        halo = max(halo, CCSampleWithAlphaSeparated(cc_spriteTexture, uv + dir * span).a);
+        halo = max(halo, CCSampleWithAlphaSeparated(cc_spriteTexture, uv + dir * span * 2.0).a * 0.5);
+      }
+      halo = smoothstep(0.06, 0.8, halo);
+
+      float outside = smoothstep(0.5, 0.08, a0);
+      float inside = smoothstep(0.08, 0.5, a0) * (1.0 - smoothstep(0.5, 0.95, a0));
+      float e = clamp((outside * halo + inside * glowParams.w) * glowParams.x, 0.0, 1.0);
+
+      return vec4(glowColor.rgb, e * glowColor.a * color.a);
+    #else
+      return vec4(0.0);
+    #endif
+  }
+}%
