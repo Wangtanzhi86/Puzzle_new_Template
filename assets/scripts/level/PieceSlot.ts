@@ -4,8 +4,10 @@ import { GameEvent } from '../core/GameEvent';
 import { OverlayMode } from '../data/LevelTypes';
 import { CircleReveal } from '../gameplay/CircleReveal';
 import { RepairReveal } from '../gameplay/RepairReveal';
+import { BroomSweep } from './BroomSweep';
+import { FlushAction } from './FlushAction';
 import { RepairedSlot } from './RepairedSlot';
-import { TapeReveal } from './TapeReveal';
+import { SprayAction } from './SprayAction';
 
 const { ccclass, property } = _decorator;
 
@@ -61,17 +63,31 @@ export class PieceSlot extends Component {
     @property({ type: SpriteFrame, displayName: '碎片池用图', tooltip: '只在池里（拿在手上）显示的图。留空则退回修复后的图' })
     poolSprite: SpriteFrame = null;
 
-    @property({ type: TapeReveal, displayName: '胶带揭晓', tooltip: '填了它就在这一格修好时先藏住修复图，让胶带依次显现，全刷完再收起并显示修复图' })
-    tapeReveal: TapeReveal = null;
-
     @property({ type: RepairReveal, displayName: '修复揭晓（序列帧）', tooltip: '填了它就在修复图露脸前先播一段序列帧再把它放大出来；本格配了「换掉」那两个节点时只播序列帧、不放大（实物不出场，播完直接换节点）；没填或关了开关就照旧直接显示' })
     revealAnim: RepairReveal = null;
 
     @property({ type: CircleReveal, displayName: '圆形扩散揭晓', tooltip: '来自「结束背景」那套换图手法：破损图留着垫在底下，修复图从缺口中心以圆形羽化扩出来盖掉它，扩完才收破损图。填了它这一格就整格走它 —— 上面那些揭晓都不会发生' })
     circleReveal: CircleReveal = null;
 
+    @property({ type: FlushAction, displayName: '通马桶动作', tooltip: '填了它这一格修好后先挪到位、抽动、排水，整段演完才算这一格露面（PIECE_SHOWN 延后）' })
+    flushAction: FlushAction = null;
+
+    @property({ type: BroomSweep, displayName: '扫地动作', tooltip: '填了它这一格修好后依次扫掉「物品父节点」下的每个子物品，扫把最后渐隐，整段演完才算露面' })
+    sweepAction: BroomSweep = null;
+
+    @property({ type: SprayAction, displayName: '喷瓶动作', tooltip: '填了它这一格修好后先上下摇晃，再换成喷雾那张边浮动边把气体渐隐，最后把这一格修复图收掉，整段演完才算露面' })
+    sprayAction: SprayAction = null;
+
+    @property({ type: [PieceSlot], displayName: '前置槽位', tooltip: '这些槽位全部修好之后，本格才走「达标」那条 —— 展示下面的替换修复图；否则展示「修复后组件」那张，并抛一次 REPAIR_FAILED。留空 = 没有前置，永远达标' })
+    requires: PieceSlot[] = [];
+
+    @property({ type: RepairedSlot, displayName: '达标后的修复图', tooltip: '配合「前置槽位」用：前置都修好了就展示它，没修好展示「修复后组件」那张。它平时由 onLoad 收起（编辑器里要看得见就手动打开）' })
+    altView: RepairedSlot = null;
+
     private _repaired = false;
     private _index = -1;
+    /** 本次修复时算出来的「达标」结果，`showView` 每一步都读它 */
+    private _met = false;
 
     get repaired(): boolean {
         return this._repaired;
@@ -82,17 +98,20 @@ export class PieceSlot extends Component {
         return Math.min(this.width, this.height) * this.snapRadiusRatio;
     }
 
-    /** 修复前那张图自己的世界矩形。Sprite 的尺寸模式得是 CUSTOM，画的框才是这个矩形。
+    /** 一个视图节点自己的世界矩形。Sprite 的尺寸模式得是 CUSTOM，画的框才是这个矩形。
      *  不用 `getBoundingBoxToWorld()`：实测它会把**活着的子节点**一并进来，图下面挂个项目影，
      *  缺口框就悄悄变大了。旋转不参与计算（槽位都是正着的）。 */
-    private box(): Rect {
-        const view = this.brokenView.node;
+    private worldBoxOf(view: Node): Rect {
         const ut = view.getComponent(UITransform);
         const scale = view.worldScale;
         const at = view.worldPosition;
         const w = ut.width * scale.x;
         const h = ut.height * scale.y;
         return new Rect(at.x - w * ut.anchorX, at.y - h * ut.anchorY, w, h);
+    }
+
+    private box(): Rect {
+        return this.worldBoxOf(this.brokenView.node);
     }
 
     get width(): number {
@@ -106,6 +125,27 @@ export class PieceSlot extends Component {
     get worldCenter(): Vec3 {
         const box = this.box();
         return new Vec3(box.x + box.width / 2, box.y + box.height / 2, 0);
+    }
+
+    /** 碎片拿在手上时缩放到的目标高度 —— 取「修复后」那张图，不是缺口框。
+     *  池里那块碎片本来就是修复后的图（`pieceFrame` 优先 `repairedSprite` / `repairedView`），
+     *  拿起来按它自己的尺寸放大，吸附那一刻才不会跳一下。取修复前那张的话，两张图尺寸不一致的
+     *  槽位（`Slot_06`：白线 55×44 / 实物 52×73）拿在手上会突然缩到六成。
+     *  没配 `repairedView` 就退回缺口框，总不至于算不出来。 */
+    get carryHeight(): number {
+        return this.repairedView ? this.worldBoxOf(this.repairedView.node).height : this.height;
+    }
+
+    /** 这一格这次修复该展示的那张「修复后」：达标（前置槽位都修好了）走替换图，没达标走原来那张。
+     *  揭晓（序列帧 / 圆形扩散 / 扫光）都读它，所以没达标那一下扩散盖住的是「未达标」那张。 */
+    get showView(): RepairedSlot {
+        return this._met && this.altView ? this.altView : this.repairedView;
+    }
+
+    /** 前置槽位是不是都修好了。没配前置就是 true（那种槽位只看 `altView` 在不在） */
+    private meetsRequires(): boolean {
+        for (const s of this.requires) if (!s.repaired) return false;
+        return true;
     }
 
     /** 碎片池里那块碎片该长什么样 —— 默认是修好之后的样子，`poolSprite` 可以换成另一张 */
@@ -125,14 +165,23 @@ export class PieceSlot extends Component {
             }
             this.repairedView.hide();
         }
+        if (this.altView) this.altView.hide();
     }
 
     /** 返回 true 表示这次真的修好了（重复吸附同一缺口会被挡掉）。
-     *  `slotIndex` 会跟着 `PIECE_SHOWN` 抛出去 —— 吸附和修复图露面可能不在同一时刻（见 `tapeReveal`）。 */
+     *  `slotIndex` 会跟着 `PIECE_SHOWN` 抛出去 —— 吸附和修复图露面可能不在同一时刻
+     *  （圆形扩散 / 序列帧 / 收尾动作都会把它推后）。 */
     repair(slotIndex: number): boolean {
         if (this._repaired) return false;
         this._repaired = true;
         this._index = slotIndex;
+        // 这一格整段表现（揭晓 + 收尾动作）演完之前，空闲引导的计时器停住 —— 不然引导会盖在
+        // 正在播的动画上。演完在 spotDone 里放行（多格同时在飞就累计）
+        EventBus.emit(GameEvent.GUIDE_HOLD);
+        // 两种状态：前置槽位都修好了才算达标。没达标就展示「未达标」那张修复图（`showView` 选的），
+        // 并抛一次失败事件 —— 这一格照旧算修好（进度照加），怎么终局由听这条事件的人决定
+        this._met = this.meetsRequires();
+        if (this.altView && !this._met) EventBus.emit(GameEvent.REPAIR_FAILED, slotIndex);
         // 圆形扩散揭晓：破损图留着垫在底下，等修复图扩出来盖掉它再收（circleShown）——
         // 这一格整格由它接管，下面的胶带 / 换节点 / 序列帧都不会发生
         if (this.circleReveal && this.circleReveal.handles(this)) {
@@ -140,12 +189,6 @@ export class PieceSlot extends Component {
             return true;
         }
         this.brokenView.node.active = false;
-        // 配了胶带揭晓：先藏住修复图，让胶带依次刷出来，全刷完由 showRepaired 放出来
-        if (this.tapeReveal) {
-            if (this.repairedView) this.repairedView.hide();
-            this.tapeReveal.play(this.showRepaired, this._index);
-            return true;
-        }
         const swap = !!(this.swapHide && this.swapShow);
         // 配了替换节点（毛衣）：修复后的实物不出场 —— 序列帧播完直接换节点，露面的是换成好人的那个
         if (swap && this.revealAnim && this.revealAnim.play(this, this.swapAndShown, false)) return true;
@@ -156,23 +199,42 @@ export class PieceSlot extends Component {
     }
 
     revealOverlays(): void {
-        if (this.repairedView) this.repairedView.showOverlays();
+        const view = this.showView;
+        if (view) view.showOverlays();
     }
 
     /** 该把修复图放出来了。普通槽位在 `repair()` 里同步走到，胶带那格等胶带全刷完才走到 ——
      *  所以配了修复揭晓的槽位是「自己的揭晓先走完，再播序列帧、再放大」。 */
     private showRepaired = (): void => {
-        const view = this.repairedView;
+        const view = this.showView;
         if (view && this.revealAnim && this.revealAnim.play(this, this.shown)) return;
         if (view) view.show(this.overlayMode === OverlayMode.IMMEDIATE);
         this.shown();
     };
 
-    /** 修复图真正露出来的那一下 */
+    /** 修复图真正露出来的那一下。配了收尾动作的槽位（通马桶 / 扫地）先把它整段演完再抛 ——
+     *  `SceneBgSwap`（完成背景 → `END_SHOW`）和总修复扫光都按 `PIECE_SHOWN` 计数，这一格要是
+     *  最后一块修好的，动作还没演完完成背景就盖上来，整段表现被吞掉。 */
     private shown = (): void => {
+        if (this.flushAction && this.flushAction.handles(this)) {
+            this.flushAction.play(this, this.spotDone);
+            return;
+        }
+        if (this.sweepAction && this.sweepAction.handles(this)) {
+            this.sweepAction.play(this, this.spotDone);
+            return;
+        }
+        if (this.sprayAction && this.sprayAction.handles(this)) {
+            this.sprayAction.play(this, this.spotDone);
+            return;
+        }
+        this.spotDone();
+    };
+
+    /** 收尾动作演完（或这一格根本没有动作）：这一格这才算露面 */
+    private spotDone = (): void => {
         EventBus.emit(GameEvent.PIECE_SHOWN, this._index);
-        // 配了胶带揭晓的那格就是窗户：它整段揭晓跑完（胶带 → 序列帧 → 放大）再抛一次，专门给音频当「结束事件」
-        if (this.tapeReveal) EventBus.emit(GameEvent.WINDOW_REPAIRED, this._index);
+        EventBus.emit(GameEvent.GUIDE_RESUME);
     };
 
     /** 圆形扩散铺满了：这一格才算露面 —— 先把垫在底下的破损图收掉 */
@@ -204,6 +266,7 @@ export class PieceSlot extends Component {
         } else {
             this.swapHide.active = false;
         }
-        if (this.repairedView) this.repairedView.hide();
+        const view = this.showView;
+        if (view) view.hide();
     };
 }

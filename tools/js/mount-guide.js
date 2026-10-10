@@ -2,7 +2,7 @@
  * 给空闲引导接线：`Canvas/UILayer/GuideLayer` 下建三个节点，并把 `GuideController` 指过去
  *
  *   GuideRoot    容器，位移 tween 打的是它
- *   GuideGhost   半透明副本（Sprite + UIOpacity），编辑期贴 Slot_01 那块碎片的图当占位
+ *   GuideGhost   半透明副本（Sprite + UIOpacity），编辑期的占位图取 Slot_01 那块碎片的
  *   GuideFinger  手指（贴 assets/recourses/手指图标.png，缩到 0.5）
  *
  *   node tools/exec.mjs scene tools/js/mount-guide.js
@@ -15,12 +15,14 @@ const layer = canvas.getChildByPath('UILayer/GuideLayer');
 const ctrl = canvas.getChildByPath('UILayer').getComponent('GuideController');
 
 const FINGER_UUID = 'a561721d-1690-49cc-8b26-dd4da3c2599c@f9941';
-const GHOST_UUID = 'c74ce759-ec50-4c97-993e-781fb18629f9@f9941';
 const FINGER_SCALE = 0.5;
 const PIECE_HEIGHT = 150;
 
 const load = (uuid) => new Promise((res, rej) => cc.assetManager.loadAny(uuid, (e, a) => (e ? rej(new Error(uuid + ' -> ' + e.message)) : res(a))));
-const [fingerFrame, ghostFrame] = [await load(FINGER_UUID), await load(GHOST_UUID)];
+const fingerFrame = await load(FINGER_UUID);
+// 副本占位图现读第一格碎片用的那张（`pieceFrame` 是 live getter：池里那块碎片长什么样它就什么样）。
+// 写死 uuid 会在换美术之后指空 —— 那正是 2026-10-10 清掉的那批失效引用之一。
+const ghostFrame = canvas.getChildByPath('GameLayer/BrokenLayer/Slot_01').getComponent('PieceSlot').pieceFrame;
 
 function ensure(parent, name) {
   let n = parent.getChildByName(name);
@@ -47,7 +49,9 @@ rootUT.setContentSize(720, 1280);
 const ghost = ensure(root, 'GuideGhost');
 const ghostSprite = spriteOf(ghost);
 ghostSprite.spriteFrame = ghostFrame;
-const gr = ghostFrame.rect;
+// `refresh_assets` 之后那一小会儿 @property 的贴图引用可能先读到 null（见 CLAUDE.md §14 那条坑），
+// 读到空就退回正方形占位 —— 反正运行期是按池里那块碎片重设的
+const gr = ghostFrame ? ghostFrame.rect : { width: PIECE_HEIGHT, height: PIECE_HEIGHT };
 ghost.getComponent(cc.UITransform).setContentSize(PIECE_HEIGHT * (gr.width / gr.height), PIECE_HEIGHT);
 ghost.setScale(1, 1, 1);
 ghost.setPosition(0, 0, 0);
@@ -69,7 +73,7 @@ return {
   root: root.name,
   rootChildren: root.children.map((c) => c.name),
   ghost: {
-    frame: ghostSprite.spriteFrame.name + ' | ' + ghostSprite.spriteFrame.uuid,
+    frame: ghostSprite.spriteFrame ? ghostSprite.spriteFrame.name + ' | ' + ghostSprite.spriteFrame.uuid : '<空>',
     size: [ghost.getComponent(cc.UITransform).width, ghost.getComponent(cc.UITransform).height],
     sizeMode: ghostSprite.sizeMode,
     opacity: opacity.opacity,

@@ -43,11 +43,11 @@ export class CircleReveal extends Component {
 
     /** 这一格该不该走圆形扩散（开关开着 + 拖了材质 + 有修复图）。false 时调用方照旧走自己那套 */
     handles(host: RevealHost): boolean {
-        return FeatureFlags.circleReveal && !!this.revealEffect && !!host.repairedView;
+        return FeatureFlags.circleReveal && !!this.revealEffect && !!host.showView;
     }
 
     play(host: RevealHost, onRevealed: () => void): void {
-        const view = host.repairedView;
+        const view = host.showView;
         const node = view.node;
         // 先把修复图亮起来：圈还是 0 大，材质把它整个挡掉，画面上仍旧是底下那张破损图
         view.show(host.overlayMode === OverlayMode.IMMEDIATE);

@@ -11,7 +11,8 @@ const { ccclass, property } = _decorator;
  */
 export interface RevealHost {
     node: Node;
-    repairedView: RepairedSlot;
+    /** `PieceSlot.showView` —— 这一格这次修复该展示的那张「修复后」（达标 / 未达标是两张不同的图），不是那个固定的 @property */
+    showView: RepairedSlot;
     overlayMode: OverlayMode;
     worldCenter: Vec3;
     width: number;
@@ -60,7 +61,7 @@ export class RepairReveal extends Component {
      * 返回 false 表示这次不接管（开关关了 / 没配序列帧 / 没修复图），调用方照旧走自己那套。
      */
     play(host: RevealHost, onRevealed: () => void, showItem = true): boolean {
-        if (!FeatureFlags.revealOnRepair || !this.frames.length || !host.repairedView) return false;
+        if (!FeatureFlags.revealOnRepair || !this.frames.length || !host.showView) return false;
 
         const parent = this.node;
         const first = this.frames[0];
@@ -112,7 +113,7 @@ export class RepairReveal extends Component {
             this.done(handle);
             return;
         }
-        const view = handle.host.repairedView;
+        const view = handle.host.showView;
         const base = view.node.scale.clone();
         handle.base = base;
         view.show(handle.host.overlayMode === OverlayMode.IMMEDIATE);
@@ -136,8 +137,8 @@ export class RepairReveal extends Component {
             handle.node = null;
         }
         if (handle.base) {
-            Tween.stopAllByTarget(handle.host.repairedView.node);
-            handle.host.repairedView.node.setScale(handle.base);
+            Tween.stopAllByTarget(handle.host.showView.node);
+            handle.host.showView.node.setScale(handle.base);
         }
     }
 }

@@ -68,9 +68,22 @@ export class MraidBridge extends Component {
         m.open(url);
     }
 
-    /** 按平台跳本平台商店 —— 游戏中那个常驻按钮和结束界面那个按钮都走这儿 */
+    /**
+     * 按平台跳本平台商店 —— 游戏中那个常驻按钮和结束界面那个按钮都走这儿。
+     *
+     * 调哪个 API 由打包时注入的 `window.__ccCta` 决定，游戏代码不分平台：
+     * AppLovin 走 mraid.open，Moloco 走 FbPlayableAd.onCTAClick()，Google 走 ExitApi.exit()。
+     * 后两家要求无参调用（跳哪个商店由平台按设备定），传进去的 url 会被忽略。
+     * 没有注入时（编辑器预览、改脚本前打的老产物）退回 mraid 那条老路。
+     */
     openStore(): void {
-        this.open(this.isAndroid() ? ANDROID_STORE_URL : IOS_STORE_URL);
+        const url = this.isAndroid() ? ANDROID_STORE_URL : IOS_STORE_URL;
+        const cta = (window as any).__ccCta;
+        if (typeof cta === 'function' && cta(url)) {
+            console.log('[MraidBridge] ' + ((window as any).__CC_CHANNEL || 'adapter') + ' CTA → ' + url);
+            return;
+        }
+        this.open(url);
     }
 
     private get api(): any {

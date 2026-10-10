@@ -36,10 +36,21 @@ export class PiecePool extends Component {
 
     protected onEnable(): void {
         EventBus.on(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
+        EventBus.on(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
+        EventBus.on(GameEvent.GAME_OVER, this.lockScroll, this);
     }
 
     protected onDisable(): void {
         EventBus.off(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
+        EventBus.off(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
+        EventBus.off(GameEvent.GAME_OVER, this.lockScroll, this);
+        this.unscheduleAllCallbacks();
+    }
+
+    /** 开局就是横屏时，建池子那一下落在竖栏里（量不到横排的可视宽度），转回竖屏得补算一次。
+     *  延后一拍是因为 `LandscapeLayout` 把 `view` 还回竖屏尺寸也在这一条事件里 —— 谁先注册不一定。 */
+    private onOrientation(portrait: boolean): void {
+        if (portrait) this.scheduleOnce(this.fitSpacing, 0);
     }
 
     get count(): number {
@@ -57,9 +68,27 @@ export class PiecePool extends Component {
             const piece = this.factory.create(data[i].slot.pieceFrame, this.content);
             this._entries.push({ piece, slotIndex: i, spacer: null });
         }
+        this.fitSpacing();
         this.scrollToStart();
         // 抛出去的是 `_entries` 本身：碎片被用掉时它自己会 splice，引导那边不用重新订阅
         EventBus.emit(GameEvent.POOL_BUILT, this._entries);
+    }
+
+    /** 一屏最多摆 4 块：按可视宽度现算间隔，让碎片铺满整条池子（不足 4 块就按实际块数铺满）。
+     *  碎片按素材原始像素显示、每块宽窄还不一样，固定间隔要么留一大截空、要么把第 5 块提前带进画面。
+     *  超过 4 块时按「最宽的 4 块」算，保证一屏只装得下 4 块 —— 第 5 块起要滚才看得到。
+     *  ⚠️ `sv.view` 是 `UITransform` 不是节点（`ScrollView` 的 getter 取的是 `content.parent`），
+     *  它上面那个 RECT `Mask` 就是可视范围，所以可视宽度取它。 */
+    private fitSpacing(): void {
+        const view = this.scrollView && this.scrollView.view;
+        const layout = this.content.getComponent(Layout);
+        // 横屏时这条不是「一行」、可视宽度也换成了竖栏的（`LandscapeLayout` 改的），等转回竖屏再算
+        if (!view || !layout || layout.type !== Layout.Type.HORIZONTAL || this._entries.length < 2) return;
+        const widths = this._entries.map((e) => e.piece.getComponent(UITransform).width).sort((a, b) => b - a);
+        const span = widths.slice(0, 4).reduce((a, b) => a + b, 0);
+        const gaps = Math.min(widths.length, 4) - 1;
+        layout.spacingX = Math.max(0, (view.width - layout.paddingLeft - layout.paddingRight - span) / gaps);
+        layout.updateLayout(true);
     }
 
     /** 一行碎片比视区宽时引擎会把内容贴右（`_adjustContentOutOfBoundary`），一进来先看到的是行尾，
@@ -75,15 +104,15 @@ export class PiecePool extends Component {
         return null;
     }
 
-    /** 拿在手上时要放大到缺口那么大，不然放上去会「啪」地变一下尺寸。
-     *  两边都换成世界尺度：缺口那边含它自己的缩放，碎片这边把本地高度乘上 worldScale
-     *  （碎片自己在 create / settle 里都置 1，所以 worldScale 就是祖先链的缩放）。
-     *  比值乘回碎片的本地尺寸，屏幕上的大小才正好等于缺口。
+    /** 拿在手上时要放大到「修复后那张图」那么大，不然吸附的一瞬间会「啪」地变一下尺寸。
+     *  两边都换成世界尺度：槽位那边是 `carryHeight`（修复图自己的世界高，含它自己的缩放），
+     *  碎片这边把本地高度乘上 worldScale（碎片自己在 create / settle 里都置 1，所以 worldScale
+     *  就是祖先链的缩放）。比值乘回碎片的本地尺寸，屏幕上的大小才正好等于修复后的图。
      *  别用 `getBoundingBoxToWorld()` 量碎片 —— 亮边那个子节点活着的时候会被并进来。 */
     carryScaleOf(entry: PieceEntry): number {
         const slot = this._data[entry.slotIndex].slot;
         const piece = entry.piece;
-        return slot.height / (piece.getComponent(UITransform).height * piece.worldScale.y);
+        return slot.carryHeight / (piece.getComponent(UITransform).height * piece.worldScale.y);
     }
 
     takeOut(entry: PieceEntry): void {

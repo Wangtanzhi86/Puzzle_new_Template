@@ -6,7 +6,8 @@
   },
   "scripts": {
     "pack": "node tools/pack-playable.mjs",
-    "pack:report": "node tools/pack-playable.mjs --report"
+    "pack:report": "node tools/pack-playable.mjs --report",
+    "dist": "node tools/make-dist.mjs"
   },
   "devDependencies": {
     "@jsquash/png": "^3.1.1",

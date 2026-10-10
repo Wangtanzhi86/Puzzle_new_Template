@@ -105,7 +105,7 @@ export class RepairSweep extends Component {
     private onShown(slotIndex: number): void {
         this._shown++;
         if (FeatureFlags.sweepOnRepair) {
-            const view = this._data[slotIndex].slot.repairedView;
+            const view = this._data[slotIndex].slot.showView;
             if (view) this.sweep([view], this.single);
         }
         if (this._completeDue && this._shown >= this._data.length) {
@@ -127,7 +127,7 @@ export class RepairSweep extends Component {
         if (!FeatureFlags.sweepOnComplete) return;
         const views: RepairedSlot[] = [];
         for (const d of this._data) {
-            if (d.slot.repairedView) views.push(d.slot.repairedView);
+            if (d.slot.showView) views.push(d.slot.showView);
         }
         this.sweep(views, this.complete);
     }

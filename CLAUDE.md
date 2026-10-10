@@ -72,10 +72,13 @@ Canvas                          Widget 全屏
         └── view
             └── content         Layout = HORIZONTAL，ResizeMode = CONTAINER
                                 ScrollView 横向滚动
-└── GameCta                     游戏中常驻的下载按钮（§14）。⚠️ 必须是 Canvas 的子节点、且排在
+└── GameCta                     游戏中常驻的下载按钮（§14）。纯色圆角底 + 系统字 "PLAY NOW"，
+                                不用美术图。⚠️ 必须是 Canvas 的子节点、且排在
                                 PiecePoolLayer 后面 —— 碎片池底图（PoolBG）一直铺到画布下沿之下，
                                 排在它前面就被盖住。位置：竖屏归节点上的底部 Widget，横屏由
                                 LandscapeLayout 挪到左边空位的中点（见 §14）
+    └── Bg                      Sprite：圆角白.png 九宫格 + color 上色（§14）
+        └── Text                Label："PLAY NOW"
 ```
 
 **两层背景**：`BackgroundLayer/Bg_Sprite` 是广告整体背景（铺满整屏），`GameLayer/Scene_BG` 是拼图场景背景（只有拼图区那么大，空图，修复前的物品是它上面一个个独立节点）。两层之间没有任何代码耦合，纯场景。
@@ -106,13 +109,21 @@ assets/scripts/
 ├── level/
 │   ├── LevelFactory.ts      从关卡 Prefab 构建关卡，输出槽位数据
 │   ├── PieceSlot.ts         单槽位组件：@property 暴露所有可拖图槽 + zOrder
-│   └── RepairedSlot.ts      修复后节点组件：可配显隐时机
+│   ├── RepairedSlot.ts      修复后节点组件：可配显隐时机
+│   ├── FlushAction.ts       Slot_02 收尾动作「通马桶」：挪到位 + 抽动 + 排水（见 §14）
+│   ├── GroundWater.ts       地上脏水：默认隐藏，Slot_04 修错时从上到下刷出来（见 §14）
+│   ├── BroomSweep.ts        Slot_03 收尾动作「扫地」：扫把挪到物品中点，边摆边往右推几下
+│   │                        后立即收起；物品同时依次渐隐（见 §14）
+│   └── SprayAction.ts       Slot_05 收尾动作「喷瓶」：左右摇晃 → 换无喷雾 → 换喷雾并
+│                            从上往下落一次、两团气体从上到下渐隐 → 收起这一格（见 §14）
 ├── gameplay/
 │   ├── PieceFactory.ts      碎片视图工厂（创建 / 回收 / 复位）
 │   ├── PiecePool.ts         碎片池（Layout 内横向排列，对象池复用）
 │   ├── DragController.ts    拖拽输入（触摸事件 → 位置更新）
 │   ├── SnapSystem.ts        吸附判定（距离 < snapRadius → 吸附）
-│   └── RepairSystem.ts      修复流程：单块修复 + 进度 + 总修复
+│   ├── RepairSystem.ts      修复流程：单块修复 + 进度 + 总修复
+│   └── IdleMotion.ts        通用循环待机动作：以编辑器里摆的位置 / 缩放为基准走正弦 ——
+│                            左右上下飘、横向纵向拉伸（见 §14）
 ├── ui/
 │   ├── GuideController.ts   空闲引导：手指 + 半透明副本演一遍拖动（纯画面，不碰玩法）
 │   ├── ProgressController.ts 进度显示
@@ -120,8 +131,10 @@ assets/scripts/
 │   ├── LandscapeLayout.ts   横屏两栏布局：拼图区放大居中偏左 + 碎片池竖栏在右（见 §7.1）
 │   └── BackgroundSwap.ts    横竖屏各一张底图，转屏换 `Bg_Sprite` 的 spriteFrame（见 §7.1）
 ├── platform/
-│   ├── MraidBridge.ts       MRAID 生命周期、ready 时序、平台判定、静音通知（`openStore()` 是唯一跳转入口）
+│   ├── MraidBridge.ts       MRAID 生命周期、ready 时序、平台判定、静音通知（`openStore()` 是唯一跳转入口，
+│   │                        它调的是打包时注入的 `window.__ccCta`，见 §8.6 —— 游戏代码不分平台）
 │   ├── CtaController.ts     结束界面：背景淡入 + logo / 按钮下落弹跳，以及 mraid.open() 跳转
+│   ├── EndgameCta.ts        终局跳转：修满 3 个 / 修错 → 跳商店，之后点哪都跳（见 §14）
 │   └── GameCta.ts           游戏中常驻的下载按钮：竖屏贴下沿（Widget）/ 横屏由 LandscapeLayout
 │                            挪到左边空位中点 + 呼吸，见 §14
 ├── audio/
@@ -148,16 +161,19 @@ assets/scripts/
 | `PIECE_DRAG` | DragController | `pieceNode, worldPos, slotIndex` | SnapSystem |
 | `PIECE_SNAP_SUCCESS` | SnapSystem | `pieceNode, slotIndex` | RepairSystem, AudioManager（配了才听） |
 | `PIECE_SNAP_FAIL` | DragController | `pieceNode` | AudioManager（配了才听） |
-| `PIECE_REPAIRED` | RepairSystem | `slotIndex, progress` | 暂无（扫光已改听 `PIECE_SHOWN`） |
+| `PIECE_REPAIRED` | RepairSystem | `slotIndex, progress` | EndgameCta（数修满几个，见 §14「终局跳转」；扫光已改听 `PIECE_SHOWN`） |
+| `REPAIR_FAILED` | PieceSlot（**配了「前置槽位 + 达标后的修复图」的那格**，见 §14「Slot_04 的两种状态」） | `slotIndex` | EndgameCta（等这格露面就淡入 Fail 再跳商店）, GroundWater（地上脏水刷出来）, AudioManager（配了才听） |
 | `TAPE_REVEAL` | TapeReveal | `slotIndex` | AudioManager（配了才听） |
-| `PIECE_SHOWN` | PieceSlot | `slotIndex` | RepairSweep |
+| `PIECE_SHOWN` | PieceSlot | `slotIndex` | RepairSweep, EndgameCta（终局那一格露面才动手）, SceneBgSwap |
 | `WINDOW_REPAIRED` | PieceSlot（**配了胶带揭晓的那格**，即窗户） | `slotIndex` | AudioManager（配了才听） |
 | `REPAIR_PROGRESS` | RepairSystem | `current, total` | ProgressController |
 | `LEVEL_COMPLETE` | RepairSystem | — | RepairSweep, ProgressController, GuideController, AudioManager（配了才听） |
 | `END_SHOW` | SceneBgSwap（底图**换完**那一刻） | — | CtaController, AudioManager（停全部音） |
 | `END_DROP` | CtaController（logo **开始下落**那一刻，比 `END_SHOW` 晚一个 `bgFadeTime`） | — | AudioManager（配了才听；结束界面自己要响的音绑这条，见 §14） |
+| `GAME_OVER` | EndgameCta（终局那一跳发出去之前） | — | DragController, PiecePool, GuideController, GameCta（各自把输入 / 滚动 / 引导 / 常驻按钮收掉，见 §14） |
 | `GUIDE_HIDE` | DragController | — | GuideController |
-| `CTA_SHOW` / `CTA_CLICK` | CtaController | — | 平台回调，AudioManager（`CTA_CLICK` 停全部音） |
+| `GUIDE_HOLD` / `GUIDE_RESUME` | PieceSlot（`repair()` 开头 / `spotDone()` 末尾，**一格一段**） | — | GuideController（空闲引导的计时器停住 / 放行，见 §14） |
+| `CTA_SHOW` / `CTA_CLICK` | CtaController / EndgameCta | — | 平台回调，AudioManager（`CTA_CLICK` 停全部音） |
 | `ORIENTATION_CHANGED` | GameEntry | `isPortrait` | DragController, PieceGlow, TrailEmitter |
 | `AUDIO_MUTE` | MraidBridge | `muted` | AudioManager |
 
@@ -180,7 +196,8 @@ assets/scripts/
 
 - 每个 `@property` 必须带 `displayName`（中文），**代码标识符保持英文** —— Inspector 里看到中文，grep 代码时还是英文。单位与反直觉的语义写进 `tooltip`。数字类参数同理，见 §16。
 - 每关一个**关卡 Prefab**（槽位数量、位置、图片可能各不相同），全部关卡共用同一套组件与脚本。
-- 缺口的位置、尺寸、吸附半径**一律取「修复前那张图」节点的世界包围盒**（`PieceSlot.box()`），代码里不写死坐标。你在编辑器里怎么挪、怎么缩放那张图，吸附范围、吸附落点（`worldCenter`）、拿起时的放大倍率（`PiecePool.carryScaleOf`）都跟着走。**`Slot_XX` 只是分组节点，它自己的尺寸和玩法无关**（原来读的是它，用 scale 调图就会和视觉脱节）。
+- 缺口的位置、尺寸、吸附半径**一律取「修复前那张图」节点的世界包围盒**（`PieceSlot.box()`），代码里不写死坐标。你在编辑器里怎么挪、怎么缩放那张图，吸附范围、吸附落点（`worldCenter`）都跟着走。**`Slot_XX` 只是分组节点，它自己的尺寸和玩法无关**（原来读的是它，用 scale 调图就会和视觉脱节）。
+  - **唯一的例外是拿起时的放大倍率（`PieceSlot.carryHeight` / `PiecePool.carryScaleOf`）：它跟「修复后那张图」走**（2026-10-10 改）。池里那块碎片本来就是修复后的图，拿起来按它自己的尺寸放大，吸附那一刻才不会跳一下 —— 详见 §14「拿起倍率改跟 `Repaired` 走」。
   - 因此 `brokenView` 是**必填**的：它既是修复前的画面，也是缺口框的来源。`verify-scene.js` 会报 null。
   - 修复前那张图必须是槽位节点的**子节点**（现在的 `Slot_01/Broken`），不能就在槽位节点自己身上 —— `repair()` 是把 `brokenView.node` 整个隐藏掉，挂在槽位节点上会连修复后的图一起藏了。
   - 包围盒取的是节点的 `UITransform` 矩形，所以那张图的 Sprite 尺寸模式要是 `CUSTOM`（不然画的框和矩形的对不上）。
@@ -205,7 +222,7 @@ assets/scripts/
       - ⚠️ 伸出去的那截**别撞上拼图列**：栏中心在 x=456，减去 198.7 后左边缘 257.3；拼图列右边缘 242.25 —— 只剩约 15px 余量。改 `poolBgScale`、`railGap`、`scale`、碎片尺寸中任何一个都会动这条边距，`poolBgScale > 1` 时先心算一遍。
       - `poolBgScale = 1` 是「刚好盖住」；想让它往两边多铺一点就调大。填 0 或负数会把底图翻没，别填。
     - **裁剪框（`view` 上的 RECT Mask）与 ScrollView 节点一起归零（2026-10-09）**：竖屏下 `sv.node` @ (3.27, −24.747)、`view` @ (−1.546, 0)，都是照 720×300 条带对齐底边用的偏移；竖栏是居中构图，这两个偏移留着会让 Mask 窗口比栏偏出 1.5px 左右。`toLandscape()` 里 `sv.view.node.setPosition(0,0,0)` + `sv.node.setPosition(0,0,0)` 之后，Mask 窗口就和栏严丝合缝（都是 227.5×720 @ 0）。⚠️ **`sv.view` 是 `UITransform` 不是节点**（`ScrollView` 的 getter 取的是 `content.parent` 的 UITransform），位置要走 `sv.view.node` —— 直接 `sv.view.setPosition()` 会抛，`sv.view.position` 读到的是 `undefined`。
-    - **碎片不跟着放大**：`PieceFactory.pieceHeight` 横竖屏同一个值，拿起来时才按 `carryScaleOf` 长到缺口那么大（横屏约 1.4 倍）—— 那本来就是它一直在做的事，没有新增「转屏改尺寸」的路。
+    - **碎片不跟着放大**：池里那个尺寸横竖屏同一个值（现在是**素材原始像素**，超 `PieceFactory.maxPieceSize` 的等比缩到它，见 §14），拿起来时才按 `carryScaleOf` 长到缺口那么大（横屏约 1.4 倍）—— 那本来就是它一直在做的事，没有新增「转屏改尺寸」的路。间隔同理：`PiecePool.fitSpacing` 只在竖屏那一条（`Layout.type == HORIZONTAL`）算，横屏竖栏沿用同一个值。
     - **玩法逻辑一行没碰**：缺口框 / 吸附半径 / 拿起倍率全按世界坐标现算，放大对吸附是透明的。
     - **安全区**：`maxRailHeight` 压到 880，竖栏居中后顶端最高 +440，正好不伸进右上角关闭按钮那个 200×200（设计单位）安全区。
     - **转回竖屏原样还回去**：`onLoad` 存下竖屏的节点位置 / 缩放 / 尺寸 / 挂件开关 / Layout 参数，转回来逐项还原 + `scrollToLeft()`（内容位置是 `ScrollView` 运行期管的，不存快照）。来回转屏不会越转越偏。
@@ -262,6 +279,8 @@ assets/scripts/
 | 11 | 音频不自动播放、关闭后静音 | 见 8.4 |
 | 12 | WebGL 检测失败需周期性重试 | 见 8.2 |
 
+> 本表是 **AppLovin** 的。Moloco / Google 的差异（交付格式、CTA API、禁项）见 §8.6 —— 三家用同一份源码，打包期出三份产物。
+
 ### 8.2 启动时序与构建管线
 
 - 定制 `build-templates/web-mobile/index.html`：**不要立即启动引擎**。先等 `mraid` ready（`mraid.addEventListener('ready', ...)`；`mraid` 不存在时降级为直接启动，便于浏览器调试），ready 后再加载 Cocos 构建产物。
@@ -317,6 +336,52 @@ Creator 构建 web-mobile
 - **不要**把启动闸门写进 `build-templates/web-mobile/index.html`：打包器只保留产物自身的 DOM 骨架，写在模板里的启动逻辑会被丢弃。
 - 本地自测：产物双击即可打开，地址后加 `#debug` 打开启动日志。没有 mraid 时会走降级路径并在控制台说明。
 - ⚠️ 产物里**未做**商店链接的占位符校验（`Config/PlayableConfig.ts` 尚未建立）。建好之后要在 `pack-playable.mjs` 里补上：每个平台必须存在一条非占位符链接，否则会跳去 404 商店页而广告平台不报任何错。
+
+### 8.6 多平台（AppLovin / Moloco / Google）一键出三份（2026-10-09）
+
+同一份源码、同一份构建产物，**打包期出三份产物**，游戏代码不分平台：
+
+```
+build/playable.html         AppLovin  单文件 HTML，CTA 走 mraid.open(url)
+build/playable.moloco.html  Moloco    单文件 HTML，CTA 走 FbPlayableAd.onCTAClick()
+build/playable.google.zip   Google    同一个 HTML 套个 zip 壳，CTA 走 ExitApi.exit()
+```
+
+三家的要求对照（只有三处真冲突，且全在外壳层）：
+
+| | AppLovin | Moloco | Google（应用广告） |
+|---|---|---|---|
+| 交付格式 | 单文件内联 HTML | 单文件 HTML | **`.zip`** ≤5MB、≤512 文件、UTF-8 |
+| CTA | `mraid.open(url)` | **`FbPlayableAd.onCTAClick()`（无参）** | **`ExitApi.exit()`** |
+| 禁项 | `mraid.js`、外部托管引用 | **`XMLHttpRequest` 字面量**、`mraid.js`、外链、JS 跳转、`.zip` | 外链（Google 托管的库除外）、localStorage |
+| 方向 | 横竖屏 | 横竖屏 | 横竖屏 + **`<meta name="ad.orientation">`** |
+
+玩法层的三条（横竖屏全屏、音频首次交互后才响、endcard + 明确 CTA）三家一致，早已满足。
+
+- **通道表在 `tools/lib/channels.mjs`**，一条一个通道：产物名 / 要不要 zip / CTA 明文 API / 注入 `<head>` 的额外标记 / 外链白名单 / 禁项。加第四个平台只加一条，打包器一行不动。
+- **CTA 走「打包期注入的适配器」，不是游戏代码里的平台分支**。`buildHtml` 往 `<head>` 里塞一段明文脚本：`window.__CC_CHANNEL='<id>'` + `window.__ccCta = function(){…}`。游戏侧只剩一句 —— [MraidBridge.ts](assets/scripts/platform/MraidBridge.ts) 的 `openStore()` 调 `window.__ccCta(url)`，返回 false（没注入 / 容器还没给 API）就退回 `mraid.open` 那条老路（编辑器预览、老产物走的就是它）。
+- ⚠️ **适配器必须是明文，不能只活在游戏代码里**：Moloco 的素材检查是对 HTML 做**字符串匹配**，而游戏代码在 gzip + base85 的载荷里，它看不见。所以 `FbPlayableAd.onCTAClick()` 这几个字必须原样出现在 `<head>`。同理 Google 的 `ExitApi.exit()`。
+- **`openStore()` 在 Google / Moloco 上算出来的 url 是白算的** —— 两家的 CTA 都无参，跳哪个商店由平台按设备定。`PlayableConfig.ts` 那两条链接只在 AppLovin 那条路上有用；打包器的商店链接闸门仍然全局卡（它是「别带着 XXXX 交出去」的保险，与哪家无关）。
+- **Google 的三件额外事**：① 同目录的 `index.html` 套进 `.zip`（`tools/lib/zip.mjs`，store 不压缩 —— 里面的 base85 本来就压不动）；② `<head>` 里加 `<meta name="ad.orientation" content="portrait,landscape">`；③ 加 `<script src="https://tpc.googlesyndication.com/pagead/gadgets/html5/api/exitapi.js">` —— **这是 Google 明确允许的唯一外链**，写在通道表的 `allowExternal` 白名单里，另外两家一份外链都不许有。外链是同步加载，适配器只定义函数、调用时才探测 `ExitApi`，先后顺序无所谓。
+- **`verify()` 按通道分别校验**：CTA 明文 API 在不在、`__CC_CHANNEL` 对不对、外链有没有跑出白名单、Google 的 `ad.orientation` 在不在、各家的禁项有几处。哪家不过就是哪家失败，`hooks.js` 的 `throwError = true` 会把整个构建带停 —— 不给「构建成功但交不出去」的假象。
+- **CLI**：不给参数 = 三份都出；`--channel <id>` 只出一份；`--out <文件>` 隐含「只出 AppLovin 那一份」（老用法不变）。`--report` 列出三份的体积。
+  - ⚠️ **产物格式由通道定，不看后缀**：`--channel google --out x.html` 出来的仍是 zip，脚本会告警提醒改后缀（Google 的上传口收的必须是 `.zip`）。
+
+⚠️ **Moloco 的 `XMLHttpRequest` 还没做，是计划中的单独一步**：Moloco 禁的是「HTML 里出现 `XMLHttpRequest` 这个字面量」（社区的实测与 `playable-adapter-core` 的做法都指向字符串扫描）。功能上早就拦掉了 —— 引擎的请求全被 `playable-runtime.js` 喂字节，`window.XMLHttpRequest = Shim` 那句就是为这个。要过的只是**字面量**：runtime 侧改成 `window['XML'+'HttpRequest'] = Shim`，再对引擎 JS 做一遍同样的 token 改名。它现在挂在通道表的 `softForbid` 上，**只计数告警、不拦构建**，所以 Moloco 那份产物**先别上传**。
+
+⚠️ **两条只能靠真实验证的事，都还没做**：
+1. Moloco 的检查究竟是不是纯字符串扫描 —— 拿一份最小产物传一次就知道了。**不是的话这条方案要重做**。
+2. Google 的 [H5 Validator](https://h5validator.appspot.com/adwords/asset) 跑一遍 zip。顺便确认 WebP 那条：Google 列的受支持格式里没有 WebP，而管线默认 PNG→WebP（资源塞在 base85 块里理论上扫不到，但真跑一次比推断可靠；实在担心就 `--no-webp`）。
+
+### 8.7 把整套链路发给别人（`dist/playable-pack.zip`）（2026-10-10）
+
+- `tools/make-dist.mjs`（`npm run dist`）把**可分发的那部分**收进 `dist/playable-pack/`，同时压成 `dist/playable-pack.zip`。发出去的是这个 zip，对方并到自己项目根目录即可。
+- 内容 = `make-dist.mjs` 里那张 `SHIP` 表（`tools/pack-playable.mjs` + `tools/lib/*.mjs` + `tools/runtime/*.js` + `extensions/playable-builder/*`）**加上** `tools/dist-template/` 整个目录。路径两边对称（原仓库 `tools/lib/zip.mjs` → 对方 `tools/lib/zip.mjs`），所以是合并，不用改任何路径。
+- **`tools/dist-template/` 是仅供分发的两件影子的源**：`README.md`（写给对方开发者看的，不是写给本项目的）与 `integration/StoreCta.ts`（游戏侧 CTA 桥，不 import 任何东西，两条链接走参数）。
+  - 它和本仓库 [MraidBridge.ts](assets/scripts/platform/MraidBridge.ts) 的 `openStore()` 是同一段逻辑的**两份拷贝**，有意为之：本仓库那份要读 `PlayableConfig`，而 `CtaController` / `GameCta` 的 `bridge` 口指向的是 `MraidBridge` **组件**，改成引 `StoreCta` 就得重接场景。改了一边记得看另一边。
+- ⚠️ **文档里的商店链接示例用本项目的真实链接**，别编 `com.example.demo` 这种假值 —— README 里的假链接被指出来过一次。
+- ⚠️ **改完 `tools/` 或 `extensions/playable-builder/` 要重跑一次 `npm run dist`**，否则发出去的 zip 还是旧的。`tools/`、`extensions/` 都不参与任何构建/导入，加文件不会影响编辑器。
+- 已实测（2026-10-10）：把 zip 解到一个空目录，造一份合成 web-mobile 产物（`src/*` + `cocos-js/cc.js` + `assets/main/*` + `style.css` + 编译后的商店链接串），在**解出来的那份包里**跑 `node tools/pack-playable.mjs --build <fixture>` —— 三份产物全出、逐通道校验全过、Moloco 的 `XMLHttpRequest` 告警照常报 4 处、zip 经 `unzip -t` 无误、每份产物里只出现自己那条 CTA 明文调用（`__CC_CHANNEL` 与之一致）。占位符闸门也照常拦（测试时用假链接，被正确挡下）。
 
 ## 9. 引擎模块裁剪
 
@@ -513,17 +578,33 @@ if (!dispatcher.dispatchEvent(event)) break;   // ← UI 派发器返回 false �
 - **已跑通实测（2026-10-08）**：`refresh_assets` 后重开 Game View，日志拿到 `[PreviewInEditor] [FrameLoop] onEnable frames=14 scale=0.281 first=matte_00001` —— 组件从场景正常加载（改名后 uuid 链接没断）、14 帧都在、节点停在编辑器里的 0.281（不再被压成 0）、首帧已上。这行探针已删。
 - ⚠️ **编辑模式看不到这条表现**：`onEnable` / `update` 在编辑器里都不跑，场景面板里的稻草人一直停在 `matte_00001` 不动。「怎么不播」如果是这么测的，那就是这个原因 —— 必须在预览（Game View）里看。
 
-**进度条（2026-10-08）**
+**进度条（2026-10-08 立，2026-10-10 改成不用图）**
 
-`UILayer/ProgressLayer` 下两个节点：`进度条框`（`进度条框.png` 500×55，sibling 0）和 `进度条`（`进度条.png` 493×48，sibling 1，3.5px 内缩）。**填充必须排在框后面** —— 框那张图整张不透明（实测中心与四角都是实色，没有透明内腔），填充盖在它上面才看得见；反过来会被框整个挡住。建节点脚本 `tools/js/add-progress-fill.js`（幂等）。
+`UILayer/ProgressLayer` 下两个节点：`进度条底`（半透明细长条，sibling 0）和 `进度条`（白色填充，sibling 1）。**填充必须排在底后面**，否则被底整个盖住。接线脚本 `tools/js/mount-progress-bar.js`（幂等，老的两张图节点会先退掉）。
 
-- `进度条` 是 **Sprite `FILLED` + `fillType HORIZONTAL`**，`fillStart 0` / `fillEnd 1` / `fillRange` 走 0→1。已核对引擎源码（`2d/assembler/sprite/bar-filled.ts` 的 `updateUVs` + `updateVertexData`）：FILLED **同时缩短 quad 和夹取 UV**，是真裁剪不是拉伸，所以两头是圆角的药丸图在过半时右端会是直切口，属正常。`fillRange = 0` 时 quad 退化到零宽，什么都不画。
+```
+UILayer/ProgressLayer            460×90，四边不贴（见 §7.1）
+├── 进度条底   Sprite：纯白.png（4×4 纯白），SIMPLE + CUSTOM，460×16，颜色 (255,255,255,70)
+└── 进度条     Sprite：同一张图，FILLED / HORIZONTAL + CUSTOM，460×16，颜色 (255,255,255,255)
+```
+
+- **不用美术图了**（原来是「进度条框.png」500×55 药丸框 + 「进度条.png」493×48 药丸填充）：两张新图都出在 `assets/recourses/UI及背景/纯白.png`（4×4 纯白，72 字节）。改颜色 / 透明度 / 尺寸全在 Inspector 里（底是 `Sprite.color` 的 a、填充是 `Sprite.color`），**`ProgressController` 一行没动** —— 它照旧只推 `fillRange`，现在推的是这张白图。
+- 两个节点的局部 y 都还是 **12.141**（老进度条的中心），所以屏幕上和原来落在同一处；尺寸从 500×55 / 493×48 变成 460×16（宽 = `ProgressLayer` 宽，高 16 就是「细长条」）。
+- ⚠️ `纯白.png` 的 `.meta` 里把 **`packable` 设成 false**：web 端动态图集默认开着（`maxFrameSize = 512`，见 §14 上面那条），FILLED 裁边时线性采样会吃到图集里紧挨着的邻居像素，填充右端会冒一条杂色。4×4 的图也一样会被打进图集。（SLICED 的 `圆角白.png` 同理，见下面「游戏中常驻的下载按钮」。）
+- `进度条` 是 **Sprite `FILLED` + `fillType HORIZONTAL`**，`fillStart 0` / `fillEnd 1` / `fillRange` 走 0→1。已核对引擎源码（`2d/assembler/sprite/bar-filled.ts` 的 `updateUVs` + `updateVertexData`）：FILLED **同时缩短 quad 和夹取 UV**，是真裁剪不是拉伸。`fillRange = 0` 时 quad 退化到零宽，什么都不画（底那条半透明的还看得见，正好当空槽）。
+- `assets/recourses/进度条/`（两张老图）**已经没有引用了**，留着没删 —— 要清就整个目录连 `.meta` 一起删，`mount-progress-bar.js` 里没有它们的 uuid。
 - `ProgressController.onProgress(done, total)` 里 `fill.fillRange` 目标 = `done / total`，tween 用 `quadOut` 缓动，时长是 Inspector 上的 `fillTime`（默认 0.4s）。**换了块数不用改代码**：三块就每块 33%，四块就 25%。
 - **判断该不该重新起 tween 不看目标值**：`fillTo()` 一律先 `stop()` 掉在飞的那条再从当前位置起步，所以连点几块不会跳变，只会顺滑接上。`onDisable` 里也停。
 - ⚠️ **场景面板里进度条永远是空的**：编辑器编辑模式不跑 `onEnable`，`fillRange` 停在场景里存的值（0）。已实测 —— 直接在编辑场景里调 `ctrl.fillTo(0.25)` 后 `fillRange` 一路保持 0.000，因为编辑模式的 director 不 tick `TweenSystem`。**要看填充只能在预览（Game View）里看。**
 - ⚠️ `label` 现在是 null：`ProgressLayer` 下没有进度文字节点（`verify-scene.js` 会一直报 `missing: ProgressController@UILayer`）。要显示 `1/3` 这种文字就自己加个 Label 拖进 `label` 口，脚本这边不用改。
 
 **毛衣槽位：修好之后藏掉坏人、放出好人（2026-10-08，2026-10-09 改成换节点）**
+
+> ⚠️ **本节记录的是历史状态，已被 §14「气体待机 / 通马桶 / 扫地」取代**：场景重做之后 `Slot_03` 不再是毛衣，
+> 它的 `swapHide` / `swapShow` 都已清空（`swapHide = null` / `swapShow = null`，见 `mount-slot-actions.js`），
+> 收尾表现换成了 `BroomSweep` 扫地。`swapHide` / `swapShow` 这套机制本身还在代码里、没坏，
+> 谁再配「两个口都填」就还会生效 —— 只是当前场景没有任何一格用它。
+> 下面这些实测与取舍（交叉淡入淡出、`UIOpacity` 必须挂、兄弟序）对外来复用这套机制的槽位仍然成立。
 
 `Slot_03`（毛衣）**修复本身和别的物品一模一样** —— 碎片照常吸附、`Broken` 隐藏。区别只在收尾那一下：把 `Canvas/GameLayer/坏人` **藏掉**、把 `Canvas/GameLayer/好人` **放出来**（好人自己挂 `FrameLoop` 循环它那套序列帧，被激活时 `onEnable` 从第 1 帧开始），**同时把修好的毛衣收掉** —— 最终画面和「毛衣一开始就消失」那版一样。
 
@@ -582,6 +663,48 @@ Slot_04 的 `Repaired` 要等胶带序列播完（约 1.36s）才露脸，而扫
 - **改成左对齐后**：第 1 块可见，第 4 块（胶带，起于 583.8）正好卡在右边缘外。**这是有意接受的状态** —— 吸附成功时 `PiecePool.consume()` 把节点从 `content` 摘掉，Layout 当帧（AFTER_UPDATE）重排，后面的碎片整体左移补位，放上第一块之后剩下三块就都进可视区了。**拖回原位不补位**：拿起期间原位留着同尺寸的 `Spacer` 顶住（见 §14 上面那条）。
 - 左对齐不会被后续重排冲掉：内容仍宽于视区、且仍盖住视区时，`_adjustContentOutOfBoundary` 两个分支都不成立；行缩到比视区窄之后，`_moveContentToTopLeft` 自己就会左对齐。所以那句 `scrollToLeft()` 只是一次性的起手。
 - 想改成「4 块一眼全见」：调 `PieceFactory.pieceHeight` 即可 —— 150 → 100 时行宽约 565px < 583.9px，内容比视区**窄**，引擎自己就左对齐了，`scrollToStart()` 那句可以一并去掉（纯 Inspector 改动，不用碰代码）。
+  - ⚠️ 这一整节的数字是上一版美术（4 块、等高 150、间距固定 24）留下的记录。**现在碎片按素材原始像素显示、间隔由 `PiecePool.fitSpacing` 现算，行宽正好等于可视宽**，一屏最多 4 块 —— 见下面「碎片按素材实际大小 + 一屏最多 4 块」。
+
+**碎片按素材实际大小 + 一屏最多 4 块（2026-10-10）**
+
+两条需求：① 池里的碎片和**实际大小**相同，超过限制值的等比缩到限制值；② 控制间隔，保证池里**最多显示 4 个**碎片。
+
+- **`PieceFactory.pieceHeight`（固定高度）已删**，换成 `maxPieceSize`（最长边上限，默认 **200**）。池里按 `frame.rect` 的**素材原始像素**显示（原来是「高度钉死 150、宽度按比例算」，小图被放大约 3 倍、糊而且比例失真），宽或高超过上限的按 `k = maxPieceSize / max(w, h)` **等比**缩到它 —— 尺寸完全由图片自己决定，`Sprite.sizeMode` 仍是 CUSTOM，宽高比不会被拉变形。
+  - 当前 demo 三块（`pieceFrame` 取 `repairedSprite`）：水管 `水管.png` 55×44 → 原样；马桶搋子 107×160 → 原样；扫把 147×243 → ×0.823 = 121×200。
+  - 池里碎片**不再等高**。`Layout` 的 HORIZONTAL 那一路用 `alignHorizontal`（见 §7.1）把交叉轴压平，所以三块各自按 y=0 居中排成一行，矮的那块不贴底也不贴顶。
+  - `carryScaleOf` 当时一个字没改（**2026-10-10 改成跟 `Repaired` 走了**，见下面「拿起倍率改跟 `Repaired` 走」）：那会儿拿起放大倍率是「缺口世界高 ÷ 碎片世界高」，1:1 之后水管是 40.97/44 = **0.931**（拿起来略缩）、扫把是 226.6/200 = **1.13**（略放大）。
+- **`PiecePool.fitSpacing()`**：建完碎片按可视宽度**现算** `content` 上那个 `Layout` 的 `spacingX`：`(可视宽 − 左右 padding − 碎片宽之和) / 间隔数`。
+  - 可视宽取 `scrollView.view.width` —— 就是挂 RECT `Mask` 的那层（`content.parent`，⚠️ `sv.view` 是 **UITransform 不是节点**）。
+  - **一屏最多 4 块**：不足 4 块按实际块数铺满（所以 3 块就是 3 块把整条池子铺满）；超过 4 块时按「最宽的 4 块」算，保证一屏只装得下 4 块、第 5 块起要滚才看得到。
+  - 实数（`view` 583.893、padding 24+24）：三块 55+107+121 = 283 → `spacingX = (535.893 − 283) / 2 = 126.45`，行宽正好 583.893 = 可视宽。行宽**不**比视区宽，引擎自己左对齐，`scrollToStart()` 那句现在只是起手保险。
+  - ⚠️ **`spacingX` 从此由代码写**，Inspector 里改的值会在建池子那一下被覆盖（§16 里「池内碎片间距不在调参表里」那条以这里为准）。四边 padding 仍归 Inspector。
+  - ⚠️ **只在竖屏那一条（`layout.type == HORIZONTAL`）算**：横屏时 `sv.view` 已经被 `LandscapeLayout` 换成竖栏尺寸，量出来的「可视宽」是栏宽（会把间隔算成 0）。开局就横屏时 `LEVEL_BUILT` 正好落在竖栏里，所以 `PiecePool` 另外听 `ORIENTATION_CHANGED`，**回到竖屏延后一拍**（`scheduleOnce(..., 0)`）补算一次 —— `LandscapeLayout` 把 `view` 尺寸还回去也在同一条事件里，两边谁先注册不一定，延后一拍才稳。
+- **`LandscapeLayout` 跟着改了三行**：`spacingX` 不再进 `onLoad` 快照（那是场景里的旧值 24，早被 `fitSpacing` 覆盖了），竖栏的 `spacingY` 在 `toLandscape()` 里**现读** `layout.spacingX`；`restorePortrait()` 不再写 `spacingX`（横屏期间没人碰它，转回来天然是对的）。不这么改的话转一次屏间隔就退回 24；先按快照写 0 再算的话，反过来会被横屏那次的 0 覆盖成「三块贴在一起」。
+- 已做：`tsc --noEmit` 零报错；上面的数按场景实际值推演过。
+- ⚠️ **还没在预览里看过**（MCP 的 `run_project_preview` 起不了、编辑器当时没开）：要看的是「三块按实际大小排开、间隔均匀铺满池子」，以及拖起来时尺寸不掉链子。改完脚本记得 `refresh_assets` + 重开 Game View。
+
+**拿起倍率改跟 `Repaired` 走（2026-10-10）**
+
+拿在手上的碎片放大到多大，原来是「**缺口世界高** ÷ 碎片世界高」（缺口 = `Broken` 那张图的框）。现在改成
+「**修复图世界高** ÷ 碎片世界高」—— `PieceSlot` 新增 getter **`carryHeight`**，`PiecePool.carryScaleOf`
+与 `GuideController` 的副本放大都读它。
+
+- **为什么**：池里那块碎片本来就是修复后的图（`pieceFrame` 优先 `poolSprite` > `repairedSprite` >
+  `repairedView.frame`），可拿起来的尺寸却按修复前那张算。两张图尺寸对不上的槽位，一拿起来就当着玩家的面
+  缩一下，吸附之后又跳回原尺寸 —— `Slot_06`（白线 55×44 / 实物 52×73）会缩到 **60%**。
+- **只动拿起倍率，别的都没动**：`PieceSlot.width/height/radius/worldCenter`（吸附框、吸附半径、吸附落点）
+  仍然全部来自 `Broken`。缺口框是「洞」，洞还是那个洞。
+- demo 六格的实测（`brokenH` → `carryHeight`）：Slot_01 `40.96 → 40.96`、Slot_02 `148.96 → 148.96`
+  （两张图同尺寸，**完全不变**）、Slot_03 `226.63 → 226.23`、Slot_04 `448.74 → 452.47`、Slot_05
+  `176.89 → 178.75`（都在 1% 上下）、**Slot_06 `40.96 → 67.96`（×1.66）**。也就是说这条改动实际上只
+  救了 Slot_06，其余五格观感无变化。
+- 实现上把 `PieceSlot.box()` 里那段手算矩形抽成了 `worldBoxOf(view)`，`box()` 与 `carryHeight` 共用
+  一份（仍然是手算，**不用** `getBoundingBoxToWorld()`，理由见 §14 那条）。
+- ⚠️ **`Slot_06` 的 `Broken` 图多半是配错了**：`卷纸 白线` 的框是 **55×44**，与 `Slot_01` 的
+  `水管 白线` 一模一样，而 `Repaired` 的 `卷纸` 是 **52×73**（竖着的一张纸）。修好之后吸附框（来自
+  `Broken`）的中心在 **(178.13, 968.58)**、修复图的中心在 **(177.02, 966.03)**，差 **2.8px** —— 能用，
+  但吸附半径也按那个 40.96 的短边算（10.24，按修复图该是 12.10）。**要让框和半径也跟上，得让美术把
+  `卷纸 白线` 换成和实物同比例、同尺寸的白线图**，代码这侧不用再改（`box()` 读的就是那张图自己的框）。
 
 **修复揭晓：序列帧 + 从小到大放大（2026-10-09）**
 
@@ -657,6 +780,7 @@ Canvas/UILayer/GuideLayer
 - **「玩家碰没碰屏幕」要走两条路才收得全**：碎片池上的触摸被 `content` 认领（全局 `input` 收不到，见上面那条），由 `DragController` 的 `PIECE_PICK` 顶替；屏幕空白处的触摸没人认领，走全局 `input.on(TOUCH_START)`。**两条路都只是「算有人操作」，不吃掉玩家这一下** —— 玩家照样能立刻去拖那块碎片。
   - 漏网的一种：手指按在碎片池条带的空白处横向滚动。ScrollView 认领了触摸，`content` 那边没命中碎片所以不抛 `PIECE_PICK`，全局 `input` 又收不到 —— 这一下不会把引导收掉。没为它加耦合。
 - **一碰就收，再空闲又回来**：`onTouch` = `hide()` + 重新起 `idleDelay` 计时。**通关前一直有效**（`LEVEL_COMPLETE` 才永久停），不是「成功一次就不再教」—— 这是按「用户无操作一定时间后重新显示引导」那句写的。顺带把 §8.1 第 6 条「无用户交互时不得超时」补上了：放着不动，画面一直在演。
+- **修复动画在飞的时候计时器停住（2026-10-10）**：`PieceSlot` 在 `repair()` / `spotDone()` 两头抛 `GUIDE_HOLD` / `GUIDE_RESUME`，`GuideController` 用 `_holds` 计数挡住 `armIdle()`。见下面「动画期间空闲引导的计时器停住」。
 - ⚠️ **必须把 `FeatureFlags.guide` 勾上**，否则 `onEnable` 第一件事就 `hide()` 然后 return，连监听都不注册 —— 表现就是「什么都看不到」。这个开关在场景里**本来是关的**，2026-10-09 已勾上（`assets/scene.scene` 里 `"guide": true`）。改完记得**重开 Game View**：开关是场景数据，跑着的预览不会热更新。
 - 节奏 / 外观全是 `@property`（§16）。**手指的贴图朝向没做处理**（没识别过那张图），默认 `fingerOffset = (46, -52)`、节点 scale 0.5 —— 图标指尖对没对准副本中心，**要在 Game View 里眼过一遍再调数值**。另外**入场后 3 秒内别碰屏幕**（碰一下就重新计时），否则会以为没引导。
 - 接线走 `tools/js/mount-guide.js`（幂等，scene 上下文，跑完自动存盘）。`verify-scene.js` 的必填项从 `['textGuide','fingerGuide']` 换成 `['root','ghost','finger']`，另加一条「副本节点必须挂 `UIOpacity`」（代码里取不到它就直接不显示，见下面的坑）。
@@ -758,8 +882,9 @@ CtaRoot                          BackgroundSwap —— 横屏把 bg 换成 横�
 └── End                          四边 Widget（CtaLayer / CtaRoot 也是），起播前 active = false
     ├── bg                       竖版结束背景.jpg，四边 Widget + CUSTOM + SLICED + UIOpacity
     ├── logo                     512×512 @ (0, 288.739)
-    └── btn                      692×209 @ (0, -250.495)，挂 Button（Transition.SCALE，zoomScale 0.9）
-        └── Img                  Sprite 在这儿 —— 见下面那条「不能缩 btn 自己」
+    └── btn                      692×209 @ (0, -317.501) scale 0.777，挂 Button（Transition.SCALE，zoomScale 0.9）
+        └── Img                  Sprite：圆角白.png 九宫格 + color 上色 —— 见下面那条「不能缩 btn 自己」
+            └── Text             Label：系统字 "PLAY NOW"
 ```
 
 - **「结束事件」是 `END_SHOW`，由 `SceneBgSwap.finish()` 抛** —— 底图**真的换完**那一瞬间，不是 `LEVEL_COMPLETE`（那个在最后一格吸上时就抛了，而 Slot_04 还要等胶带 + 蝙蝠 + 放大两秒多）。`revealView` / `revealEffect` 没配时 `reveal()` 直接抛这个事件，免得整条广告永远不出 CTA。
@@ -768,6 +893,12 @@ CtaRoot                          BackgroundSwap —— 横屏把 bg 换成 横�
   - `squash` 是**形变量**：`scale = base × (1 + squash, 1 - squash)`，即落地横向拉宽、纵向压扁。
   - `btn` 比 logo 晚 `stagger` 秒出发，所以是「logo 先落、按钮跟着落」。
 - ⚠️ **`btn` 的 Button 缩的必须是子节点 `Img`，不能缩 `btn` 自己**。引擎的 `_handleTouchEnd`（`cocos/scene-graph/node-event-processor.ts:671`）会拿**当前缩放后**的矩形做 hitTest，缩到 0.9 之后贴着边按下再松手会被判成 `TOUCH_CANCEL`，`Button` 收不到 TOUCH_END 就不发 `CLICK` —— **CTA 点击会丢**（引擎自己在 `button.ts` 的 `zoomScale` 注释里也写了这条）。缩 `Img` 则 `btn` 的命中框一动不动，怎么按都收得到。顺带把「下落动画写 `btn` 的 scale」和「按下反馈写 `Img` 的 scale」也隔开了。`verify-scene.js` 会拦「`target === node`」和「缩放目标上没有 Sprite」两种配错。
+- **按钮外观不用美术图了（2026-10-10，和游戏中那个常驻按钮同一套做法）**：原来那张 `按钮.png` 随换美术一起删了，`End/btn/Img` 空了一阵（见 memory「2026-10-10 换美术后的空壳表现」）。现在 `Img` 是 `圆角白.png`（48×48、四边 `border = 16`、`packable = false`）**九宫格 + `Sprite.color` 上色**（绿 `52,168,83`，和 `GameCta` 同色），`Img/Text` 是**系统字 Label**（Arial 100 号加粗白色，"PLAY NOW"，`Overflow.NONE`）。改文案 / 颜色 / 字号 / 尺寸全在 Inspector 里，不占字体资源的体积，也不用重出图。
+  - 字号 100 是**按 `GameCta` 的比例反推的**（那边 24 号配 48 高的底）：实测字块 **529.69×147.42**，占 `btn` 的 **76.5% 宽 / 70.5% 高**（`GameCta` 是 72.2% / 73.5%），所以这个按钮看着就是「同一个按钮放大版」。`btn` 自己的尺寸 / 位置 / scale **一个都没动** —— 0.777 是编辑器里摆好的值，`drop()` 拿它当基准。
+  - `Text` 挂在 `Img` 下面（不是和它并排），因为 `Button` 缩的是 `Img`，按下时底和字要一起缩。
+  - 接线走 `tools/js/mount-end-cta.js`（幂等，scene 上下文，跑完自动存盘）。⚠️ 它是**外观**脚本，`btn` 的命中框 / `Button` / `CtaController` 那五个口还是 `mount-end-card.js` 管的，两个都要跑。
+  - ⚠️ **Label 的节点框在编辑模式不会自己重算**（实测刚挂上时 `UITransform` 停在新建节点的默认 100×100），要脚本里显式 `label.updateRenderData(true)` 才会落成 529.69×147.42 —— 不调也不影响运行期，只是场景文件里存的框是 100×100。
+  - ⚠️ 观感只能看 Game View / 真机：`End` 起播前是 `active = false`，编辑场景面板里看不到按钮亮起来的样子。要过的是「绿色底 + 白字在结束界面上够不够醒目」「字块在 692×209 里留白是否合适」。
 - **关音效不在 `CtaController` 里**：`AudioManager` 自己也听 `END_SHOW`，走 `stopAll()`（`_closed = true` + 逐条 `stopChannel`，配了 `fadeOut` 的先渐出），之后任何事件都不再起新的（**结束界面自己要响的那条例外，它绑 `END_DROP`，见上面「音频」那节**）。两个模块各听各的，不用互相持有引用（§4）。
 - **横屏底图靠复用 `BackgroundSwap`**（挂在 `CtaRoot` 上），和 `BackgroundLayer` 上那个是同一个组件的两个实例，互不干扰。竖屏那张不另配口 —— `onLoad` 读的就是 `bg` 上挂着的 `竖版结束背景.jpg`。
   - ⚠️ 横屏现在换的是**游戏内那张 `横屏背景.jpg`**，不是结束界面专属的。美术出了「横版结束背景」之后，把 `CtaRoot` 上 `BackgroundSwap.landscapeFrame` 重新指一下即可（走 `mount-end-card.js` 里那个常量，或直接在 Inspector 里拖）。
@@ -783,30 +914,42 @@ CtaRoot                          BackgroundSwap —— 横屏把 bg 换成 横�
 - ⚠️ **观感只能在 Game View 里看**：编辑模式不 tick tween 也不 tick 调度器，上面验的是「建起来了、数对、能收能回」，不是「落得顺不顺、弹得自不自然」。真机上还要过一遍「**点按钮一定跳得出去**」（缩的是 `Img`，命中框是 `btn`，这条是按引擎源码推的，没在真机上试过）。
 - ⚠️ **`End/bg` 的贴图换过一次**：原来是 `背景图.jpg`（和游戏内底图同一张），现在是美术新给的 `竖版结束背景.jpg`。`BackgroundSwap._portraitFrame` 读的是「`onLoad` 那一刻 `bg` 上的那张」，所以换图之后不用改任何代码。
 
-**游戏中常驻的下载按钮（2026-10-09）**
+**游戏中常驻的下载按钮（2026-10-09 立，2026-10-10 改成不用图）**
 
 新增 `assets/scripts/platform/GameCta.ts` + `Canvas/GameCta`（`mount-game-cta.js` 接线，幂等）。玩法过程中屏幕上一直有一个下载按钮：**竖屏贴画布下沿居中、横屏落在左边空位的中点**，一直呼吸；`END_SHOW` 一到就收掉（那一屏有自己的大按钮，两个一起摆着像坏了）。
 
+```text
+GameCta                  176×48 —— Button（缩放目标 = Bg）+ Widget（bottom 6）+ GameCta 组件
+└── Bg                   Sprite：圆角白.png，SLICED，颜色 (52,168,83) —— 纯色圆角底
+    └── Text             Label：系统字 Arial 24 加粗 "PLAY NOW"，白色，Overflow.NONE
+```
+
+- **外观不用美术图了**（原来是「按钮.png」720×240 整张缩到 0.2，糊得字都认不出）：底色是 `assets/recourses/UI及背景/圆角白.png`（48×48 白圆角矩形、半径 16，`.meta` 四边 `border = 16`）**九宫格 + `Sprite.color` 上色**，字是**系统字 Label**。换文案 / 颜色 / 字号 / 尺寸全在 Inspector 里改，不用重出图，也不占字体资源的体积。
+  - `圆角白.png` 和进度条那张 `纯白.png` 都是**生成的小图**（48×48 与 4×4，共约 350 字节），不是美术出的 —— 圆角白用 4× 超采样算 alpha，边缘不毛。
+  - 两张图的 `.meta` 里都写了 **`packable: false`**：动态图集默认开着（`maxFrameSize = 512`），这两张小图都会被塞进图集，边缘采样会吃到紧挨着的邻居像素（SLICED 的九宫格边、FILLED 的裁切边都会冒杂色）。同 `PieceFactory` 那条。
+- **`Text` 挂在 `Bg` 下面而不是和它并排**，这样按下时底和字一起缩（Button 缩的是 `Bg`）。挂在 `GameCta` 自己身上也不会错，只是字不跟着缩放动。
 - **竖屏那条边交给节点上的 Widget**（`bottom = 6` + 水平居中，`alignMode = ON_WINDOW_RESIZE`），画布多高它自己跟。**`GameCta` 自己一行定位都不写** —— 位置由「谁在那个方向管事」决定：竖屏是 Widget、横屏是 `LandscapeLayout`，两边互相让开（见下面那条）。
-- **横屏落在「左边空位」的正中**：`LandscapeLayout` 新增第六个口 `cta`，`toLandscape()` 里先 `cta.getComponent(Widget).enabled = false`（不关掉的话竖屏那个底部 Widget 会把 y 又拽回去），再 `x = -(画布宽 ÷ 2 + totalW ÷ 2) ÷ 2`。空位是「画布左沿 → 拼图列左沿（`-totalW/2`）」，半宽取两头的平均；`totalW = colW + railGap + railW` 只有 `LandscapeLayout` 量得到（拼图列宽要乘 `scale`、栏宽要数碎片的宽），**画布宽从 `view.getVisibleSize().width` 现读** —— 画布节点自己的 `UITransform` 要等下一次 Widget 重排才更新，这一刻读到的还是竖屏那一版。demo 实数（4 块碎片、`scale = 1.4`、横屏画布 1770×1280）：`totalW = 812 + 100 + 227.5 = 1139.5`，空位 `[-885, -569.75]`（315.25 宽），**按钮中心 −727.375**，144 宽的按钮占 `[-799.4, -655.4]`，两边各留约 85px。
+- **横屏落在「左边空位」的正中**：`LandscapeLayout` 新增第六个口 `cta`，`toLandscape()` 里先 `cta.getComponent(Widget).enabled = false`（不关掉的话竖屏那个底部 Widget 会把 y 又拽回去），再 `x = -(画布宽 ÷ 2 + totalW ÷ 2) ÷ 2`。空位是「画布左沿 → 拼图列左沿（`-totalW/2`）」，半宽取两头的平均；`totalW = colW + railGap + railW` 只有 `LandscapeLayout` 量得到（拼图列宽要乘 `scale`、栏宽要数碎片的宽），**画布宽从 `view.getVisibleSize().width` 现读** —— 画布节点自己的 `UITransform` 要等下一次 Widget 重排才更新，这一刻读到的还是竖屏那一版。demo 实数（4 块碎片、`scale = 1.4`、横屏画布 1770×1280）：`totalW = 812 + 100 + 227.5 = 1139.5`，空位 `[-885, -569.75]`（315.25 宽），**按钮中心 −727.375**，176 宽的按钮占 `[-815.4, -639.4]`，两边各留约 70px。
 - `restorePortrait()` 把 `ctaPos` / `ctaWidget` 还回去（`onLoad` 快照新增这两项），交回 Widget 时顺手 `updateAlignment()` 一次，来回转屏不会越转越偏。
 - ⚠️ **`mount-game-cta.js` 里不能调 `widget.updateAlignment()`**：编辑模式下它会把 `_bottom` 按节点当前矩形**回写**一遍，而画布子节点的本地坐标和它算的内缩量对不上，写回来是错的（实测 `6 → 16.367`，节点被顶高 21.84px，而且**这个错值会存进场景**）。只写内缩量 + 手动塞一版坐标就够了 —— 编辑器下一拍自己会把节点摆正（实测从任意位置滚回 −610），运行期更是照 `_bottom` 现算。
   - ⚠️ 场景里 `GameCta` 的 `_lscale` 一度是 **1.91**（来路不明，没有任何脚本写过它）—— `mount-game-cta.js` 现在每次跑都把 scale 压回 1（呼吸 tween 拿编辑器里的 scale 当基准，基准得是 1）。
 - ⚠️ **必须是 `Canvas` 的子节点、且排在 `PiecePoolLayer` 后面**：碎片池底图 `PoolBG`（674×372）一直铺到画布下沿**之下**（设计 y 到 −619.81），排在池子前面会被它整个盖住。排在最后的代价是它压在 `UILayer`（进度条 / 引导 / 结束界面）上面 —— 所以 `END_SHOW` 必须收掉它。
-- ⚠️ **尺寸 144×48 是被「碎片池的可点区」卡出来的，不是随便定的**：`ScrollView` 的矩形（实测 576.13×250.5，世界 y 56.19–306.69，即**设计 y −583.81 ~ −333.31**）上挂着触摸监听，**落在里面的触摸一律被它认领**（`_sortByPriority` 按兄弟序把池子排在前面）——压上去的那一段按下去没反应。画布正好 720×1280（16:9 竖屏）时，池子下沿到画布下沿只有 **56.19px**，`bottom = 6` 剩 50px，取 48 是「不压进池子」的最大 3:1 按钮（顶边 −586，离 −583.81 还有 2.19px）。手机屏越高余量越大（19.5:9 是 195px），想做大的话得先接受「上半截点不到」，或者把它挪到池子上面去。
+- ⚠️ **高度 48 是被「碎片池的可点区」卡出来的，不是随便定的**（宽度 176 不受这条限制）：`ScrollView` 的矩形（实测 576.13×250.5，世界 y 56.19–306.69，即**设计 y −583.81 ~ −333.31**）上挂着触摸监听，**落在里面的触摸一律被它认领**（`_sortByPriority` 按兄弟序把池子排在前面）——压上去的那一段按下去没反应。画布正好 720×1280（16:9 竖屏）时，池子下沿到画布下沿只有 **56.19px**，`bottom = 6` 剩 50px，取 48 是不压进池子的最大值（顶边 −586，离 −583.81 还有 2.19px）。手机屏越高余量越大（19.5:9 是 195px），想做高一点得先接受「上半截点不到」，或者把它挪到池子上面去。宽度已经贴着横屏左边空位的两边约 70px 余量，再宽就要看 `LandscapeLayout` 那几个口。
   - ⚠️ 竖屏窗口比 16:9 更矮（桌面拉窄的窗口，比例 < 9/16）时画布不足 1280 高，顶边就会顶进池子矩形 —— 手机上不会出现。
   - 按钮贴的是**当前画布**的下沿，所以长屏上它比池子低一截（那是设计稿居中留出来的空带），不是偏了。横屏那边同理，贴的是画布左沿往里的那块空位。
 - **跳转走新加的 `MraidBridge.openStore()`**（`isAndroid()` 分支原来在 `CtaController.onClick` 里写了一份，现在两边共用一句）。`CtaController` 的行为一字未变：还是先 `openStore()` 再抛 `CTA_CLICK`（顺序的理由见上面那条）。
 - 呼吸：`repeatForever()` 套在最外层（`union()` 之后），scale 从编辑器里摆的值到 ×1.06、`sineInOut`，单程 `breathTime`（0.9s）；`onDisable` / `hide()` 都先 `Tween.stopAllByTarget(this.node)` 并还原 scale。`breathScale = 0` 就不呼吸。
-- `Button` 照旧 `SCALE` / `zoomScale 0.9`，**缩放目标是子节点 `Img`**（缩自己没有按边就丢点击，同结束界面那条，`verify-scene.js` 现在两个按钮一起查）。
-- 接线：`tools/js/mount-game-cta.js`。⚠️ **赋 `spriteFrame` 会按当前尺寸模式立刻改写节点框**（默认 TRIMMED → 实测被写成 692×209，也就是那张图裁边后的大小），所以顺序必须是「先 `sizeMode = CUSTOM` → 再赋图 → 最后 `setContentSize`」。
+- `Button` 照旧 `SCALE` / `zoomScale 0.9`，**缩放目标是子节点 `Bg`**（缩自己没有按边就丢点击，同结束界面那条，`verify-scene.js` 现在两个按钮一起查；`Bg` 上有 Sprite，`checkButton` 那三条都过）。
+- 接线：`tools/js/mount-game-cta.js`。⚠️ **赋 `spriteFrame` 会按当前尺寸模式立刻改写节点框**（默认 TRIMMED → 会被写成贴图自己的大小，老图那张是 692×209），所以顺序必须是「先 `sizeMode = CUSTOM` → 再赋图 → 最后 `setContentSize`」。
+  - ⚠️ **`node.setPosition(...)` 必须排在 `widget.bottom = 6` 之前**：编辑模式下 Widget 监听节点的 `TRANSFORM_CHANGED`，节点一动它就把内缩量按新位置**回写**一遍（`_adjustWidgetToAllowMovingInEditor`），后写的赢。顺序反了会存下错的 `_bottom`（实测落盘成 −5.473）。
 - `verify-scene.js` 加了 `GameCta: ['bridge']`，外加三条只读检查：排在 `PiecePoolLayer` 后面、按钮配置、**顶边不许压进 `ScrollView` 的矩形**；原来的按钮检查抽成了 `checkButton(path, name)` 共用。
 - 已实测（编辑场景里手动 `onLoad/onEnable`、跑完全部还原、`--no-save`）：注册前后总线 `[] → ['END_SHOW','ORIENTATION_CHANGED'] → []`；`hide()` 后 `active = false` 且 scale 还原；`onClick()` 打出 `[MraidBridge] 本地调试不跳转：https://apps.apple.com/...`（编辑期没有 mraid，走的是 UA 分支，说明 `openStore()` 通）。
   - 落盘读数：`_lpos (0, −610)`、`_lscale (1,1,1)`、Widget `_alignFlags 20`（BOT|HC）、`_bottom 6`、`_alignMode 2`。
   - Widget 侧那三组实测：只写 `bottom = 6` 不调 `updateAlignment()` → 内缩量保持 6，编辑器下一拍把节点摆到世界 y 30（本地 −610）✓；调了 `updateAlignment()` → 立刻被回写成 16.367（`--no-save` 下反复复现）；把节点故意挪到 −642.207 再等一拍 → 又滚回 −610 ✓（也就是「错值只从 `updateAlignment()` 那条路来」）。
   - `toLandscape()` / `restorePortrait()` 的探针（编辑场景里手动调，空池子 → `railW = 48`、`totalW = 960`、编辑期 `visibleW` 恒为 720）：`landscape` 读数 `x = −420`（= `expectX`）、`y = 0`、**Widget 已被关掉**；`restorePortrait()` 之后回到 `x = 0 / y = −610 / widget = true / scale = 1` —— 与进 `toLandscape()` 前逐位相等。⚠️ 这批数字里的画布宽是编辑模式的 720（真机横屏约 1770，按公式落在 −727 那一带），探针验的是**公式与开关的往返**，不是真机上的构图。
-  - `verify-scene.js` 只剩那两条既有告警（`ProgressController.label` 为空、`AudioManager` 第 5 条没拖音效）；新增的 `LandscapeLayout.cta` 与 GameCta 那几条只读检查全过（144×48 的顶边离池子可点区下沿还有 2.19px）。
-- ⚠️ **观感只能看 Game View / 真机**：编辑模式不 tick tween、也不跑 `start()`。要眼过一遍的是「呼吸的幅度与节奏」和「144×48 下那张 720×240 的按钮图糊不糊、字认不认得出」（那张图缩到 0.2，可能得换成小一号的 CTA 图）。另外**真机上点一下必须能跳**（走的是和结束界面同一个 `openStore()`，但这条 CTA 从开局就在，是「没通关也点了」这条新路径）。
+  - `verify-scene.js` 只剩那两条既有告警（`ProgressController.label` 为空、`AudioManager` 第 5 条没拖音效）；新增的 `LandscapeLayout.cta` 与 GameCta 那几条只读检查全过（176×48 的顶边离池子可点区下沿还有 2.19px）。
+  - 换外观后（2026-10-10）落盘读数：`GameCta` 176×48 @ (0, −610)、scale 1、`_lscale` 1（那批 1.91 的脏值被脚本压回来了）；`Bg` 176×48、`圆角白` sizeMode 0 / type 1(SLICED) / trim false / color (52,168,83,255) / `packable false` / inset 四边 16；`Text` 的 Label `PLAY NOW`、字号 24、加粗、系统字、自动尺寸 **127.1×35.3**（比 176 窄、比 48 矮，不会出框）。
+- ⚠️ **观感只能看 Game View / 真机**：编辑模式不 tick tween、也不跑 `start()`。要眼过一遍的是「呼吸的幅度与节奏」和「圆角底的绿色（和结束界面那张按钮图同色系）配白字够不够醒目、`PLAY NOW` 在 24 号字下在真机小屏上认不认得出」。另外**真机上点一下必须能跳**（走的是和结束界面同一个 `openStore()`，但这条 CTA 从开局就在，是「没通关也点了」这条新路径）。
 
 **CTA 点了不跳：容器给的 mraid 没有 `getDeviceInfo`（2026-10-09）**
 
@@ -848,6 +991,365 @@ CtaRoot                          BackgroundSwap —— 横屏把 bg 换成 横�
   `FeatureFlags` 面板里 `circleReveal: true` 已落盘，两格 Slot 的引用、`EffectLayer` 上那个组件（`revealTime 0.6` /
   `feather 0.35` / `revealEffect = 45692ecc…`）都在 `assets/scene.scene` 里。
 - ⚠️ **扩散的观感（0.6s、羽化宽度、和扫光的叠加）只能在 Game View 里眼过一遍**：编辑模式不 tick tween。
+
+**Slot_04 的两种状态：达标看前置槽位，不达标就跳商店（2026-10-10）**
+
+`Slot_04`（人物）有两种结局：**没先修好 Slot_01 + Slot_02 就修它 → 展示 `Repaired`（失败的人）
+并抛 `REPAIR_FAILED`**；两个前置都修好了 → **展示 `Repaired-001`（成功的人）**。
+碎片池里那块碎片**始终**用 `Repaired` 那张（失败的人）。
+
+- 两个新口都在 `PieceSlot` 上，全是引用、没有新的数字参数（§16 不用动）：
+  - `requires`（前置槽位，`PieceSlot[]`）—— 这些槽位全部 `repaired` 才算达标。留空 = 永远达标。
+  - `altView`（达标后的修复图，`RepairedSlot`）—— 达标时展示它。`onLoad` 里收起它（场景里它是 active 的，
+    编辑期看得见好摆位，同 `完成背景` / `好人` 那套路数）。
+- **`_met` 在 `repair()` 里算一次**（`meetsRequires()`），之后全场读 `PieceSlot.showView` getter：
+  `_met && altView ? altView : repairedView`。**揭晓那三处 + 扫光都改成读它** ——
+  `RevealHost` 的字段就从 `repairedView` 改名成了 **`showView`**（`CircleReveal` / `RepairReveal` /
+  `RepairSweep` 一并跟着改；`repairedView` 这个 `@property` 本身没动，`RepairedSlot` 也没动）。
+  不这么改的话没达标那一下的圆形扩散会盖在「成功的人」上 —— 画面和状态对不上。
+- **这一格照旧算修好**：`_repaired = true`、进度 +1、`PIECE_REPAIRED` / `REPAIR_PROGRESS` 照抛
+  （§1「无失败态」不变）。失败**不亮结束界面**，`CtaController` 收到 `REPAIR_FAILED` 只记下槽位号，
+  等**这一格自己的修复揭晓演完**（同槽位的 `PIECE_SHOWN`）直接 `onClick()` —— 也就是
+  `bridge.openStore()` + `CTA_CLICK`（后者顺带让 `AudioManager` 停掉全部音）。
+  - 时机就是「动画结束再弹」：现在 Slot_04 走的是圆形扩散（0.6s），`PIECE_SHOWN` 正好在它铺满之后。
+    **后面要加的那套失败动画就插在这条链上** —— 要么等它播完再让 `PieceSlot` 抛 `PIECE_SHOWN`
+    （同 `RepairReveal` 的做法），要么在 `CtaController.onShown` 里换一个触发点。
+- 接线走 `tools/js/mount-slot-alt.js`（幂等，scene 上下文，跑完自动存盘）：`requires = [Slot_01, Slot_02]`、
+  `altView = Slot_04/Repaired-001` 的 `RepairedSlot`、`poolSprite` = `Slot_04/Repaired` 上那张（失败的人）。
+  池里用图**显式钉住**，这样以后谁改 `repairedSprite` 都不会把池里那块带到「成功的人」上去。
+- `verify-scene.js` 加了一条只读检查：配了「达标后的修复图」却没配「前置槽位」就报 ——
+  那种配置 `meetsRequires()` 恒为 true，**失败分支一次都走不到**。现在四个槽位无告警。
+- 已实测（编辑场景里手动把两个揭晓挡住让 `repair()` 直达 `showRepaired`，跑完还原、`--no-save`）：
+  - 前置没修：`repair(3)` → `_met = false`、`showView = Repaired`、`REPAIR_FAILED` 载荷 `[3]`、
+    `PIECE_SHOWN` 载荷 `[3]`；
+  - 前置都修好（手动把 Slot_01/02 的 `_repaired` 置真）：`showView = Repaired-001`，`Repaired` 不再亮；
+  - 跳转：`CtaController.onFailed(3)` 之后 `onShown(1)` **不跳**（别的槽位露面不关它的事）、
+    `onShown(3)` 跳一次；跑完监听回到空、探针留下的 `play` / `handles` / `openStore` 三个桩全部 `delete` 干净。
+  - 落盘读数：`Slot_04` 的 `requires` = `["Slot_01","Slot_02"]`、`altView` = `Repaired-001`、
+    `poolSprite` = `repairedSprite` = `ced2a79f`（失败的人）。
+- ⚠️ **「直接自动跳商店」是明确要求**（不是走结束界面让玩家点）：`mraid.open()` 在失败这一刻自己弹，
+  没有任何用户交互。AppLovin 审核可能把「自动跳转」算违规项，交审前确认一次。
+- ⚠️ **失败之后没有锁输入**：「无法进行其他操作」目前只靠「碎片已经用掉 + 平台跳转后广告多半被收起」。
+  玩家从商店返回后仍能接着拖其余的碎片（甚至把整关修完、亮出结束界面）。要真锁就得加一条
+  「游戏结束」事件让 `DragController` / `PiecePool` 停下，说一声再加。
+- ⚠️ **观感只能在 Game View 里看**：编辑模式不跑 `onLoad`（所以场景面板里 `Repaired` 和 `Repaired-001`
+  是**重叠**显示的，运行时才由 `onLoad` 收掉），也不 tick tween 与调度器。
+
+**地上脏水：默认隐藏，修错时从上到下刷出来（2026-10-10）**
+
+`Canvas/GameLayer/Scene_BG/地上脏水`（222×109，贴图 `地上脏水.png`）平时**完全不出现**，
+Slot_04 修错抛出 `REPAIR_FAILED` 的那一刻，它**从顶边往下**刷满。
+
+- 新增 `level/GroundWater.ts`，**挂在节点自己身上**（不需要 `PieceSlot` 上多一个口，也不用接线脚本回填，
+  它只听事件）。两个口：`delay`（失败后延迟，默认 0）、`revealTime`（渐显时长，默认 0.5）。
+  `onEnable` 注册 / `onDisable` 注销 `REPAIR_FAILED`，跑完停 tween。
+- **「从上到下」还是那套 FILLED 裁剪**（同胶带 `TapeReveal`，真裁剪不是拉伸），方向靠 `fillStart`：
+  ⚠️ **竖向填充是从 `fillStart` 那一头长到 `fillEnd`**，`fillStart = 1` 是顶边，所以「从上往下」要
+  tween 一个 **0 → −1** 的 `fillRange`（引擎里负值 = 「起点往反方向走」，`bar-filled.ts:57`）。
+  **配成正的 `fillRange` 在 `fillStart = 1` 下永远什么都不画**（`1 + r` 被夹到 1，再减回 1 → 零高）——
+  实测 `fillRange = 0.5` 的四边形退化在顶边（`bottom = top = +54.5`）。`verify-scene.js` 因此卡
+  「必须是 FILLED/VERTICAL/`fillStart = 1`」。
+- **「默认隐藏」是靠 `fillRange = 0`**（四边形退化成零高，不是 `active = false` —— 节点一关，
+  `onDisable` 就把 `REPAIR_FAILED` 的监听注销了，水永远不会出现）。场景里存的是 **1**（编辑模式不跑
+  `onLoad`，得看得见才好摆位），运行期 `onLoad` 归 0。
+- **顺带把 `frame.packable` 关掉**：动态图集默认开着，FILLED 的裁切边会线性采样到图集里紧挨着的邻居
+  像素（同 `PieceFactory` / `纯白.png` / `圆角白.png` 那三处，这里是写在代码里而不是 `.meta` 里）。
+- 接线走 `tools/js/mount-ground-water.js`（幂等，scene 上下文，跑完自动存盘）：Sprite 改
+  FILLED/VERTICAL/`fillStart = 1`、`sizeMode = CUSTOM`、`fillRange = 1`（存盘的初值），挂组件。
+- 已实测（编辑场景里手动 `onLoad()` → `onEnable()` → `onFailed()`，跑完还原、`--no-save`）：
+  `onLoad` 后 `fillRange` 由 1 变 0、`packable` 由 true 变 false；`onEnable` / `onDisable` 前后
+  `REPAIR_FAILED` 的监听数 **1 ↔ 0**；`onFailed()` 不抛。**方向直接读四边形**：
+  `fillRange = −0.5` → 底边 0、顶边 +54.5（**上半截**，正是「从顶上刷下来」）；
+  `−1` → −54.5 ~ +54.5（整块）；`0` → 底顶都在 +54.5（零高）。
+  ⚠️ 编辑模式不 tick tween（手动 `TweenSystem.instance.update()` 也推不动），所以「刷的动作、
+  0.5s 的节奏」只能在 Game View 里看。
+- ⚠️ **它和 `REPAIR_FAILED` 之后的自动跳商店抢时间**：`CtaController` 等的是这一格的 `PIECE_SHOWN`，
+  现在 Slot_04 走圆形扩散（0.6s），也就是说**脏水刷满（0.5s）刚过 0.1s 就跳商店**。
+  想让玩家看清再跳就得把跳转压到渐显之后（给 `CtaController` 加个失败延迟，一行的事）——
+  没做，要就说一声。
+- 没进 `FeatureFlags`：这是「修错」这条需求本身的画面，不是可选表现（§15）。
+
+**气体待机 / 通马桶 / 扫地 / 喷瓶（2026-10-10）**
+
+四件事，三个新脚本 + 一个通用组件（喷瓶那节另起，见下面「Slot_05 喷瓶」）；喷瓶那节在 2026-10-10 按反馈改过一次：
+
+| 新文件 | 挂在哪 | 干什么 |
+|---|---|---|
+| `gameplay/IdleMotion.ts` | `Scene_BG/马桶隐藏节点/气体大`、`/气体小` | 循环待机动作（不碰玩法、不抛事件） |
+| `level/FlushAction.ts` | `Slot_02` | 通马桶收尾动作 |
+| `level/BroomSweep.ts` | `Slot_03` | 扫地收尾动作 |
+| `level/SprayAction.ts` | `Slot_05` | 喷瓶收尾动作（左右摇晃 → 换喷雾 → 从上往下落 + 气体从上到下渐隐 → 收起） |
+
+**待机：气体飘（`IdleMotion`）**
+
+- 一个通用组件：以**编辑器里摆的位置 / 缩放**为基准走正弦 —— `swayX` / `swayY`（px）+ `stretchX` / `stretchY`（比例，`0.12` = ±12%），`period`（秒）+ `phase`（0–1，多个节点错开起跑）。挂在节点自己身上，开局一直演。
+- 场景里配的两条：`气体大` `swayX = 25 / period = 3.2`（只左右）——按你的要求「左右移动循环播放」；`气体小` `stretchY = 0.12 / period = 1.8`（只上下拉伸）——「上下略微拉伸」。两者其余幅度都是 0 = 那条轴不动。
+- ⚠️ **没有复用已有的 `SwayMotion.ts`**：那个 `@requireComponent(UIOpacity)` 并且会把**透明度**一起 0↔255 起伏，拿它做「气体飘」会把气体飘没。`RiseReveal` / `SwayMotion` 都还在场景里（挂在稻草人那边），一个字没动。
+- 实测（编辑场景里手动喂 `update(dt)`，跑完还原、`--no-save`）：`气体大` x 在 `基准 ∓25` 之间来回（-17.652 ↔ 32.348）、`scale.x` 不变；`气体小` `scale.y` 在 `1 ∓0.12` 之间（0.88 ↔ 1.12）、x 不变；两边的基准都没漂。
+
+**Slot_02 通马桶（`FlushAction`）**
+
+时序：吸附 → 现有的圆形扩散揭晓照旧先走（`circleReveal` 整格接管优先级最高，`repair()` 里它在第一个分支）→ 扩散铺满 → **`FlushAction.play()`** → 整段演完才抛 `PIECE_SHOWN`。
+
+1. **挪到位**：修复图（马桶搋子）`position → (-25.28, 2.107)`、`angle → 24`，`quadInOut`，`moveTime = 0.35s` —— 就是「这个过程需要平滑一点」。
+2. 到位后**同时**起两条：
+   - 搋子**上下抽动**：`bobCount = 3` 个来回，`bobDepth = 14px`，单程 `bobTime = 0.18s`（`quadOut` 下、`quadIn` 上）；
+   - **`脏水` 等比缩小、水面往下落**：`scale.x` 与 `scale.y` **一起**缩到 `waterShrink`，**按抽动次数分档**（`bobCount` 次压下去各缩一档、抬起来那半程水位不动 —— 见下面那条）。
+3. 两条都跑完 → 搋子与脏水一起在 `fadeTime = 0.25s` 里 `UIOpacity` 淡到 0（`sineIn`）→ 各自 `active = false`。
+4. `onDone()` —— 这一格这才算露面。
+
+**脏水是「等比缩小 + 底边固定」，不是「只压 y + 整体下沉」（2026-10-10 按反馈改）**
+
+第一版写的是 `scale.y → ×0.15`（x 不动）+ `position.y → −22px`，实测两个问题：**水被压扁成一条横杠**，
+而且那条横杠宽 111px、又被往下推 22px，**横向伸出了马桶、底部也穿出去了**。
+
+现在改成：**`waterShrink` 同时写 `scale.x` 和 `scale.y`**（形状不变），并且 **`position.y` 按「底边固定」现算** ——
+`bottom = 基准 y − 内容高 × 基准 scale.y × anchorY`，每帧 `y = bottom + 内容高 × 当前 scale × anchorY`。
+于是缩的时候**水面从上面往下落、底边一动不动**，正是排水该有的样子，也**不可能再往马桶底下穿**。
+`waterDrop`（默认 0）是额外的下沉量，想再往下压一点才填正数。
+
+demo 实数（`脏水` 111×45、anchor (0.5,0.5)、基准 `position (-65.287, -37.868)`）：
+底边全程钉在 **−60.368**；`waterShrink = 0.2` 时水变成 **22.2 × 9**、中心从 −37.87 落到 −55.87、
+顶边从 −15.37 落到 −51.37（水面下落 36px），横向只占 −76.39 ~ −54.19 —— 从 111 宽收成 22 宽，
+彻底进到马桶口里面。
+
+**一次抽动排一档，不是一口气缩完（2026-10-10 按反馈改）**
+
+原来是**一条 `sineIn` tween 在 `drainTime` 内一路缩到底**，和抽动各跑各的 —— 看上去是「水在匀速消失，
+搋子在上面自己抽」。现在把这段拆成 `bobCount` 档，**逐拍对齐抽动**：
+
+- 第 i 次「压下去」那半程（`bobTime`）把水从上一档缩到 `i / bobCount`（`s` 由 1 线性插到 `waterShrink`，
+  `d` 同步插到 `i / bobCount`），缓动换 **`sineOut`**（压下去那一下先快后慢，像被挤出来）；
+  紧接着「抬起来」那半程用 `.delay(bobTime)` **让水位停住**。
+- 于是两条链总长都是 `bobCount × bobTime × 2`（现在 3×0.18×2 = **1.08s**），逐拍同步、末尾同时到 ——
+  观感就是「搋子抽一下、水少一截」。
+- **`drainTime` 这个属性已删**（排水时长不再是独立参数，由 `bobCount` / `bobTime` 决定）；场景里那两格的旧键
+  （`"drainTime": 0.5`）留在原地，反序列化时类上没有就直接忽略，下次编辑器存盘会自己掉，无害（同 `FrameLoop.scaleTime`）。
+- `s` 是**分档**写的，不是每档从 1 重来：`i` 档的目标 = `1 + (waterShrink − 1) × i / bobCount`，
+  所以每一档都接着上一档的尺寸继续缩，缩完恰好是 `waterShrink`。
+
+- ⚠️ **`waterShrink` 是等比**，别指望用它单独调某一个轴；**缩得多细、抽几下**看 `bobCount` / `bobTime` / `waterShrink`。
+- 以上是按公式推的端点值（`node -e` 算过，底边恒定、宽高按比例）；**观感（每档缩多少、抽动与水位对不对得上）还是只能在 Game View 里看**。
+
+- **气体大 / 气体小 一个字节都没碰**（按你确认的「只收脏水，气体留着」）：`FlushAction` 只拿到 `water` 一个口，那两团气体不归它管，照旧飘。
+- ⚠️ **曲线全是 `to()` 接到当前值**，起点是**现读的**节点位置（不是编辑器里那个），所以先播了圆形扩散、节点被挪过也不影响。
+- 抽动那一段是用 `tween(bobState)` + `onUpdate` 写 `position`（外面套一节一节 `.to()`），不是改节点自己的 `position` tween —— 因为同一段时间里**水位那条也在写这个节点之外的另一个节点**，两边互不抢。
+
+**Slot_03 扫地（`BroomSweep`）**
+
+没有扫地序列帧素材，摆动是**程序算的**（移动 + 旋转，你确认的那条）。
+
+时序：吸附 → 圆形扩散照旧先走 → `BroomSweep.play()`：
+
+1. 扫把 `quadInOut` 挪到**物品中点**（`moveTime = 0.35s`，中点可以再用 `offset` 微调）；
+2. **一开摆，物品就同步开始渐隐**（不再等扫把摆完）：`items` 下（= `Scene_BG/扫把隐藏节点`，子节点是 `浴球` / `牙膏` / `猫砂`）每个子物品按顺序依次渐隐，`UIOpacity` 在 `fadeTime = 0.3s` 里淡到 0 → `active = false`，相邻两个之间停 `gap = 0.1s`（第 i 个的起跑延迟 = `i × (fadeTime + gap)`）；
+3. **摆动 + 右移同时进行**：`sweepCycles = 2` 个来回，每个单程 `sweepTime = 0.15s`，`angle` 在 `0 ↔ sweepAngle(16°)` 之间走 `sineInOut`；**整段摆动期间扫把还匀速向右推进 `sweepMoveX = 120px`**（起点是中点、终点 `中点 + sweepMoveX`），看着像真的扫过去；
+4. **摆完立即收起**（`active = false`，没有渐隐）—— 此时物品可能还在渐隐（摆 0.6s、物品全隐要 1.1s）。
+最后一个物品隐完 → 抛 `PIECE_SHOWN`。
+
+- **中点 = 各物品位置的平均值**（2026-10-10 改，之前是「每个物品各扫一遍」）：`扫把隐藏节点` 自己在 `(0,0)`，三个物品在 `(70.6, -296.2)` / `(-129.4, -294.2)` / `(-207.9, -176.5)`，平均落在 `(-88.9, -255.6)` —— 刻意**不取父节点自己的位置**。
+- **物品位置是现读世界坐标再换算到扫把父节点空间**（`parent.convertToNodeSpaceAR(item.worldPosition)`），所以转屏 / 改布局都不会跑偏（同工程里「世界坐标一律现读」那条）。
+- **扫把挪 + 摆是一条链走到底**，两条 `.call()`：第一节后面那个起物品的渐隐 + 右移（= 摆动的第一拍），链末那个收起扫把。物品的渐隐是**各自独立的一条 tween**（`.delay(绝对时刻)` 起跑）—— 两条链互不抢节点。
+- **右移是和角度链并行的第二条 tween，同一个节点上**（`advance()`）：两条各写各的属性（`position` / `angle`）。这是安全的 —— 引擎的 `ActionManager.addAction` 对同一 target 是 `element.actions.push(action)`（`tween/actions/action-manager.ts:156`），没有 cocos2d-x 那种「同 tag 顶掉」的行为。**别把两条都写成 `position`**，那才是会互相拽。
+  - ⚠️ 同处 `:145` 还有一条：**target 是 Node 且它是这堆动作里的第一个时，动作会在节点 `active = false` 时被整个 `paused`**（`_registerNodeEvent`）。所以链末那句 `broom.active = false` 之后扫把那两条 tween 都不会再推进 —— 反正那一刻它们都跑完了。
+- **物品从「摆动开始」那一刻起隐，不是「挪过去」时起隐**：挪的那 0.35s 里物品还是全的（扫把还没到，先隐就是扫空气）。要连这段一起隐就把 `fadeItems` 挪到 `play()` 里、`tween(broom)` 之前。
+- `broomFadeTime` 已删（改成硬隐藏，没有渐隐这一拍了）。场景里 `BroomSweep` 那个组件上还留着旧值，反序列化时类上没有这个属性、直接忽略，无害（同 `FrameLoop` 的 `scaleTime`）。
+- ⚠️ **这一版只过了 `tsc --noEmit`，没在编辑器 / Game View 里跑过**：要眼过一遍的是「扫把起手停在中点对不对（不对就调 `offset`）」「右移的距离够不够/会不会扫出物品范围（`sweepMoveX`，120 是按三个物品横向跨度约 300px 猜的）」「摆 + 平移合起来像不像在扫」和「三个物品依次渐隐的节奏」（`fadeTime` / `gap` 都在 Inspector 上）。改完记得 `refresh_assets` + 重开 Game View。
+
+**为什么动作接在 `PIECE_SHOWN` 之前（这次的关键决定）**
+
+`SceneBgSwap`（完成背景扩散 → 抛 `END_SHOW`）和 `RepairSweep`（总修复扫光）都按 `PIECE_SHOWN` 计数。`PieceSlot.shown()` 原来在这一格修好时**同步**就抛了 —— 这两格要是**最后一块修好的**，搋子/扫把的动作还没演完，完成背景 + 结束界面就盖上来，整段表现被吞掉（和 Slot_04 胶带那格是同一个问题，见上面「扫光改挂修复图露面」那条）。
+
+改法：`shown()` 拆成两截 —— `shown()` 先看有没有配收尾动作，有就 `play(this, this.spotDone)`；`spotDone()` 才是原来那两行（抛 `PIECE_SHOWN`，胶带那格再多抛一条 `WINDOW_REPAIRED`）。和 `TapeReveal` 延迟露脸是同一套逻辑。
+
+**为什么清掉了 `Slot_02` / `Slot_03` 的 `swapHide`（就是「配了隐藏节点但没生效」的根因）**
+
+`repair()` 里那句是 `const swap = !!(this.swapHide && this.swapShow)` —— **两个口都填了才生效**。这两格当时只填了 `swapHide`（`马桶隐藏节点` / `扫把隐藏节点`）、`swapShow` 是空的，所以整条换节点分支是死的：`swapAfterSweep()` 一次都不会被调用。这就是「我配置了它的隐藏节点，但是并没有生效」的直接原因。
+
+- 现在 `swapHide` / `swapShow` **两个都清成了 `null`**（节点引用改由新组件自己的 `water` / `items` 口承担），`verify-scene.js` 的 `checkSwap` 不再报「没配齐」。
+- ⚠️ **别再往这两格填 `swapHide`** —— 填了就只是挂一个没人读的引用（`swapShow` 空着），表现上什么都不发生。
+
+**场景现在的揭晓接线（2026-10-10 实测，与下面几节的老描述不一致）**
+
+`repair()` 的第一个分支是圆形扩散，所以「谁配了 `circleReveal`」直接决定那一格整段长什么样。当前 `assets/scene.scene` 的实际值：
+
+| 槽位 | `circleReveal` | `revealAnim` | `tapeReveal` | `flushAction` / `sweepAction` / `sprayAction` | `altView` |
+|---|---|---|---|---|---|
+| Slot_01 | 有 | 有 | null | — | — |
+| Slot_02 | 有 | 有 | null | `flushAction` | — |
+| Slot_03 | 有 | 有 | null | `sweepAction` | — |
+| Slot_04 | 有 | 有 | **null** | — | `Repaired-001`（`requires = Slot_01, Slot_02`） |
+| Slot_05 | 有 | 有 | null | `sprayAction` | — |
+
+- **五格都是圆形扩散**（`mount-circle-reveal.js` 只接 01/02，另外三格是后来在编辑器里自己指上的）——所以 **`revealAnim` / `swapHide`+`swapShow` / `tapeReveal` 这几条分支现在全都是死的**，`repair()` 走不到它们。收尾动作（`flushAction` / `sweepAction` / `sprayAction`）不受影响：它们挂在 `shown()` 里，在圆形扩散那条链的**下游**。`altView` / `REPAIR_FAILED` 也不受影响（在分支之前算）。
+- ⚠️ **`tapeReveal` 现在是 `null`**（`mount-tape-reveal.js` 的注释还写着接 `Slot_04`）：胶带 / 稻草人那套不会演，`WINDOW_REPAIRED` 也就**永远不抛** —— 场景里 `鬼叫` 那条 cue 的「结束事件」正是它，于是那声音会一直循环到 `END_SHOW` 的 `stopAll()` 才停。要恢复胶带揭晓就得先把 `Slot_04.circleReveal` 清掉（圆形扩散优先级更高，不清它胶带照样不演），再重跑一次 `mount-tape-reveal.js`。
+- 上表是读 `assets/scene.scene` 里的 `"circleReveal": {"__id__": …}` / `"tapeReveal": null` 得到的，与编辑器内存里的场景一致（`--no-save` 探针另跑过一次，逐格同名）。**改接线之前先看这张表。**
+
+**接线与校验**
+
+- `tools/js/mount-idle-motion.js`（幂等，scene 上下文，跑完自动存盘）：两团气体各挂一个 `IdleMotion` 并填参数；`脏水` 不在它的管辖里（`untouched: ["脏水"]`）。
+- `tools/js/mount-slot-actions.js`（幂等）：`Slot_02` 挂 `FlushAction`（`water = Scene_BG/马桶隐藏节点/脏水`）、`Slot_03` 挂 `BroomSweep`（`items = Scene_BG/扫把隐藏节点`），回填 `PieceSlot.flushAction` / `sweepAction`，清两个 `swapHide`，并给 `脏水` / 两格的 `Repaired` / `浴球` / `牙膏` / `猫砂` 补 `UIOpacity`（渐隐要用，**缺了就是 `null.opacity` 直接抛 —— 抛在这条路上等于这一格的 `PIECE_SHOWN` 永远不抛，最后一格修好时完成背景和结束界面都不出来**）。
+- `tools/js/mount-spray-action.js`（幂等，scene 上下文，跑完自动存盘）：`Slot_05` 挂 `SprayAction`（`gases = [气体大, 气体小]`）、回填 `PieceSlot.sprayAction`、**把摇晃 / 下落 / 气体那七个调参写进去**（`shakeCount 3 / shakeAngle 8 / shakeTime 0.12 / mistRise 60 / mistDropTime 0.9 / gasFadeTime 0.45 / gasStagger 0.35` —— 在 Inspector 里改过再跑一次会被复位）、给两团气体补 `UIOpacity`、`Slot_05/Repaired` 的 Sprite 改 `sizeMode = CUSTOM`、`Slot_05.pieceId` 从 0 拉到 4。**两张贴图的 uuid 不写死**（重新导入就会变），由调用方从 `.meta` 现算后经 args 传进去：
+  ```
+  node tools/exec.mjs scene tools/js/mount-spray-action.js \
+    "{\"noMist\":\"<喷瓶无喷雾 的 uuid>@f9941\",\"mist\":\"<喷瓶 的 uuid>@f9941\"}"
+  ```
+  不传 args 就只接 gases / 引用 / `pieceId`，两个图口保持原样（那样这一格 `handles()` 恒为 false，整套动作不演）。
+- `verify-scene.js`：`wanted` 加了 `IdleMotion: []` / `FlushAction: ['water']` / `BroomSweep: ['items']` / `SprayAction: ['mistFrame']`；新增只读的 `checkSpot`（脏水没挂 `UIOpacity`、物品父节点下没有子节点、每个子物品没挂 `UIOpacity`、喷瓶的气体没挂 `UIOpacity`、有收尾动作的槽位修复图没挂 `UIOpacity`，五条各报一条 —— **喷瓶不收修复图**（它是硬隐藏），所以它不并进最后那条）。
+- 跑下来：`found.IdleMotion = ["气体大","气体小"]`、`found.FlushAction = ["Slot_02"]`、`found.BroomSweep = ["Slot_03"]`、`found.SprayAction = ["Slot_05"]`，`missing` 里只剩那三条既有的（`ProgressController@UILayer`（`label` 空）/ `BackgroundSwap@CtaRoot` / `背景图九宫格 inset 没配齐（0,0,0,0）` —— 后两条是换美术留下的真实缺口，见 memory 里那条「换美术后的空壳表现」），**没有新告警**；`npx tsc --noEmit` 与 `run_script_diagnostics` 都是零报错。
+- ⚠️ **MCP 端口本轮是 21561**（不是 §14 上面写的 20168、更不是 §0 写的 8765）：`tools/exec.mjs` 默认 20168，要带 `MCP_PORT=21561` 跑。`funplay-cocos-mcp.config.json` 里是 `"port": 21561, "portMode": "project"` —— 下次重启端口还可能变，以那个配置文件为准。
+
+- ⚠️ **观感只能在 Game View 里眼过一遍**：编辑模式不 tick tween 也不 tick 调度器，上面验的是「建起来了、数对、能收能回」，不是「看着顺不顺」。要看的四件：① 气体大飘的幅度/速度、气体小拉伸的幅度（会不会晃眼）；② 搋子挪到位那一下顺不顺、抽动几次合适、脏水下得自不自然；③ 扫把摆动角度与节奏、三个物品扫掉的先后；④ **把 `Slot_02` 或 `Slot_03` 留到最后一块修**，确认动作演完才出完成背景 / 结束界面。
+
+**Slot_05 喷瓶：摇晃 → 换喷雾 → 落下 + 气体从上到下渐隐 → 收起（2026-10-10，同日按反馈改过一次）**
+
+新增 `assets/scripts/level/SprayAction.ts`，挂在 `Slot_05` 上，由 `PieceSlot.sprayAction` 指过来。整段是：
+
+1. **摇晃**：修复图（`喷瓶无喷雾`）**在编辑器里摆的角度上左右摇**（`node.angle`，不是位移）——`shakeCount` 次（默认 3），每次「摆到 `+shakeAngle` 再摆到 `−shakeAngle`」（默认 8°，单程 `shakeTime` = 0.12s），最后一次额外摆回 0，**精确停回原角度**（下面换图时的对齐量读的就是它）。
+2. **换成「无喷雾」那张**：显式 `noMistFrame`（不换也不影响画面，摇晃用的本来就是它；写出来是为了别受池里那块碎片被改过的影响）。
+3. **换成「喷雾」那张（`喷瓶`）+ 从上往下落一次**：换完先抬到落点上方 `mistRise`（默认 60px），再用 `mistDropTime`（默认 0.9s、`sineInOut`）缓慢落到对齐位置。**同时**两团气体**从上到下依次**渐隐 —— 每团自己一条 tween，按各自的世界纵坐标排序（上先下后），相邻两团差 `gasStagger`（默认 0.35s），每团自己淡 `gasFadeTime`（默认 0.45s）。
+4. **收起**：下落和气体渐隐**都完了**才 `showView.hide()` → `onDone()` —— 也就是「喷完之后正常隐藏节点」，画面上不留下那瓶有喷雾的。
+
+- ⚠️ **这两处是 2026-10-10 按反馈从第一版改过来的**：摇晃原来是「上下位移」（`shakeDepth` px），换图后原来是「上下浮动 3 次」（`bobCount` / `bobDepth` / `bobTime`），气体原来是**同时**淡。三个属性连同字段名一起删了 —— 场景文件里那三个旧键留在原地（反序列化时类上没有就直接忽略，和 `FrameLoop.scaleTime` 一样无害），下次编辑器存盘会自己掉。
+- ⚠️ **摇晃改用 `node.angle` 之后，`spray()` 里那句读 `view.eulerAngles.z` 的对齐换算仍然对**：摇晃链最后一次明确摆回 0，所以进 `spray()` 时角度就是编辑器里那个 −9.968°。**别把最后一次 `.to({ a: 0 })` 去掉**。
+
+- **两张贴图的画布不一样大，直接换会跳**：`喷瓶无喷雾` 是 81×192（瓶子几乎占满画布），`喷瓶` 是 230×222（瓶子缩在右下角、喷雾往左上飘）。所以换图那一下按 **`mistScale` + `mistOffset`** 把喷雾图挪回瓶身原来的位置：默认 `mistScale = 1.265`、`mistOffset = (-99.03, 42.87)`。
+  - 量法（都按 **alpha 包围盒**、阈值 128，`喷瓶.png` 只看 `x ≥ 156` 以避开往左飘的雾）：两张图的**瓶身高度** 191 与 151 → `k = 191/151 = 1.265`；再让两个瓶身的**底边中点**重合 → 位移 = `A底边中点 − k × B底边中点`。**按高度对齐、不是按宽度**：两个瓶子的宽高比本来就不一样（0.419 vs 0.49，喷雾那张更矮胖），没有哪个 k 能同时对上两个方向，取高度是「瓶子还是那么高」，代价是看上去宽约 17%。
+  - **`mistOffset` 写在贴图像素里**，运行时按节点自己的旋转转一次再当位移用（`Repaired` 在场景里被转了 **−9.968°**，不转的话瓶身会偏 21px 左右）。所以场景里怎么拧那个角度都不影响对齐。
+  - 换图时把节点的 `sizeMode` 钉成 `CUSTOM`、框设成那张图的 `originalSize`（81×192 / 230×222），配合节点上本来就是 `trim = false` 的 Sprite —— 整张画布按 1:1 画进框里，**贴图像素 = 节点本地像素**，上面那套位移才是准的。实测（编辑场景里手动调 `spray()`，见下）瓶身底边中点换图前后落在 `(-16.860, -90.174)` 与 `(-16.848, -90.191)`，**差 0.02px**。
+- **`noMistFrame` / `mistFrame` 两个图口是接线脚本赋的**，uuid 不写死（每次重新导入都会变），由调用方从 `.meta` 现算后经 args 传进去 —— 见下面「接线与校验」。**`mistFrame` 是必填**：填了 `handles()` 才为 true，留空则这一格整套动作不演（而且不报错）。
+- **气体就是 `Scene_BG/马桶隐藏节点/气体大` / `气体小`**（原来归 Slot_02 的通马桶那组，`IdleMotion` 挂在它们身上）。它们在这次之前**没有 `UIOpacity`**，接线脚本补上了 —— 缺了就是 `null.opacity` 直接抛，抛在这条路上等于这一格的 `PIECE_SHOWN` 永远不抛。
+  - ⚠️ **它们是同一对节点**：Slot_02 修好时气体照旧飘，Slot_05 修好时把它们淡掉藏起来，**藏了就不再回来**（`active = false`，`IdleMotion` 跟着停）。两格先后顺序不同会看到不同的中途画面（Slot_05 先修 → 后面通马桶那格就没有气体了），这是按需求来的，不是 bug。
+- **`Slot_05.pieceId` 从 0 拉到了 4**：原来和 `Slot_01` 撞号，只靠 `Array.sort` 的稳定性兜着（退化成场景里的子节点顺序）。现在五个槽位是 `0/1/2/3/4`。**池里顺序肉眼无变化**，但 `pieceId = 4` 意味着它是**池里最后一块**、也是最后才可能被修的 —— `SceneBgSwap`（完成背景 → `END_SHOW`）和总修复扫光都按 `PIECE_SHOWN` 计数，而这一格整段要演「圆形扩散 0.6s + 摇晃 0.84s + 下落 0.9s ≈ 2.35s」，所以**它当最后一块时那一整套都会等它**（这是 `shown()` 那条链本来就在做的事）。
+- ⚠️ **它前面还有一段圆形扩散**：`Slot_05.circleReveal` 是配上的（`repair()` 的第一个分支），所以从吸附那一刻起的顺序是「圆形扩散 → 摇晃 → 换图 + 下落」。「碎片被吸附后，碎片先有一个上下移动的动画」里的「先」指的是**扩散之后**。要让它变成吸附后立刻摇，得清掉这一格的 `circleReveal`。
+- ⚠️ **`gasStagger × (团数 − 1) + gasFadeTime` 别超过 `mistDropTime`**（默认 0.35×1 + 0.45 = 0.8 < 0.9，刚好吃满）。超了的话最后一团还在淡、瓶身已经落到位并停住，两件事就脱节了；反之留太多余量会看到「气体淡完了瓶子还悬着不落」。收尾那一步是 `pending` 计数（下落 1 条 + 每团气体 1 条），**全到齐才 `hide()`**。
+- 实测（编辑场景里手动调 `comp.play(slot, …)` 读摇晃链、再手动调 `comp['spray'](slot.showView, base, done)`，跑完 `stop()` + 逐项还原，`--no-save`）：
+  - 摇晃链一共 **0.84s = 6 个单程 + 1 个回零**，逐段读到 `a: +8 / −8 / +8 / −8 / +8 / −8 / 0`，前六段 `sineOut` / `sineIn` 交替、收尾那段 `sineOut` —— 与「往左摆再往右摆算一次」对得上。
+  - 换图后节点落在 `pos (-89.55, **122.58**)`（= 对齐位置 `62.585` 之上 **60.0px**，正是 `mistRise`）、`scale 1.265`、`size 230×222`、`frame 喷瓶`；下落那条 tween 是**一条** `.to(0.9s, { y: 62.5847 })`、`sineInOut` —— 单次、落到对齐位置。
+  - `_live` = 3（下落 1 + 气体 2）。两团气体按世界纵坐标排序后：`气体大`（y=1096.5）**delay 0**、`气体小`（y=1028.6）**delay 0.35**，两条都是 `sineIn`、0.45s 淡到 0 —— **上先下后**。
+  - `handles() = true`；编辑模式不 tick tween 所以 `done` 仍是 0（这条链的收尾只能在 Game View 里看）；还原后 `pos (0.57, 3.22)` / `scale 1` / `size 81×192` / `frame 喷瓶无喷雾` / 两团气体 `opacity 255 / active` 全部回到原样。
+- ⚠️ **观感只能看 Game View**：编辑模式不 tick tween 也不 tick 调度器。要看的是：① 左右摇晃的幅度（8° 够不够像「在摇」、会不会晃出缺口）；② 换图那一下跳不跳（瓶身对没对上，对不上就微调 `mistOffset`）、抬 60px 再落会不会显得「蹦了一下」（不要这个起手就把 `mistRise` 填 0）；③ 下落的快慢、气体从上到下淡的先后是否看得出层次；④ 收起后画面上那块地方是不是干净的。
+
+
+**动画期间空闲引导的计时器停住（2026-10-10）**
+
+新增一对事件 **`GUIDE_HOLD` / `GUIDE_RESUME`**（`GameEvent` 里紧跟 `GUIDE_HIDE`），由 `PieceSlot` 抛出 ——
+`repair()` 开头 `HOLD`、`spotDone()` 末尾 `RESUME`，**一格一段**，正好框住这一格从「吸附」到「动作演完」
+的整条表现（圆形扩散 / 胶带 / 序列帧 / 通马桶 / 扫地全在里面）。
+
+`GuideController` 里是一个**计数器** `_holds`，不是布尔：玩家能在上一格的动画还在飞的时候接着拖下一块，
+两段动画会重叠（`repair()` 的 `HOLD` 是各自抛的）。
+
+- `onHold` = `_holds++` + `unschedule(this.show)` —— 在等的那个计时器当场撤掉；`armIdle()` 也加了
+  `_holds > 0` 的闸，所以动画期间怎么折腾（碰屏幕、拿起碎片）都不会重新起算。
+- `onResume` = `_holds--`，减到 0 才 `armIdle()`。
+- **是「暂停 + 重来」，不是「接着上次剩的时间」**：`scheduleOnce` 拿不到剩余时长，放行时按完整的
+  `idleDelay` 重新起算。`idleDelay = 3s`、动画 0.5–2s 的量级下这点差别看不出来。
+- `onLevelBuilt` 里把 `_holds` 归零 —— 重开关卡时不该背着上一关的欠账（归零漏了的话计数器一旦泄了就
+  再也弹不出引导，而空闲引导正是 §8.1 第 6 条「无用户交互时不得超时」的兜底，不能哑）。
+- **`hide()` 一行没改**：玩家拿起碎片时 `PIECE_PICK` 已经把引导收掉了，等 `repair()` 跑到的时候引导本来就
+  不在显示，所以 `onHold` 不用再收一次（保证了「收」只由触摸那一条路负责）。
+- ⚠️ **`_holds` 靠 `spotDone()` 配对归还**。任何让收尾动作的 tween 被 `stop()` 掉而不调回调的路径
+  （`FlushAction` / `BroomSweep` 的 `onDisable`）都会少还一次 —— 那两条只在组件被禁用时走到，
+  正常玩法碰不到；真泄了的话计数器不为 0，引导就不再弹，现象很好认。
+
+**终局跳转：修满 3 个 / 修错 → 跳商店，之后点哪都跳（2026-10-10）**
+
+新增 `assets/scripts/platform/EndgameCta.ts`（挂 `Canvas/UILayer/CtaLayer`，接线走
+`tools/js/mount-endgame.js`，幂等，scene 上下文，跑完自动存盘）。两条终局：
+
+| 触发 | 表现 | 跳转时机 |
+|---|---|---|
+| 修满 `winCount`（默认 **3**）个 | **不弹任何界面** | 第 3 块自己的修复动画演完（`PIECE_SHOWN`）当场跳 |
+| `REPAIR_FAILED`（`Slot_04` 没达标就被修） | 先把 `CtaRoot/Fail` 整棵淡入（`failFadeTime`，默认 0.25s），再跳 | 等这一格的修复动画演完再弹、再跳 |
+
+两条路跳完之后**玩法彻底冻结**：抛出 `GAME_OVER`，然后挂一条全局触摸监听 ——
+玩家从商店回来点屏幕任意处就再跳一次（`onTap` 撤掉还没到点的那次 `scheduleOnce` 当场补跳）。
+
+- **两个终局共用「等这一格露面」那一步**：`_endIndex` 记下终局那一格的槽位号，只有它的
+  `PIECE_SHOWN` 对得上才动手。理由和扫光 / 完成背景一样 —— 吸附那一 tick 就把事件抛了，
+  而这一格（尤其 `Slot_04` 走圆形扩散、`Slot_02`/`Slot_03`/`Slot_05` 后面还挂着收尾动作）
+  的画面还要演一两秒，那时候跳就是「动画没演完就跳走了」。
+- **`REPAIR_FAILED` 是独立终局，不等凑满 `winCount`**，而且它比 `PIECE_REPAIRED` **先抛**
+  （`PieceSlot.repair()` 里那句在前面）—— 所以「第 3 块恰好修错」时失败赢：`onFailed` 先把
+  `_endIndex` 占了，随后那条 `onRepaired` 的 `_endIndex >= 0` 判空直接跳过。
+- `winCount` **填 0 = 不按数量跳**，退回「全部修完 `END_SHOW` → 结束界面」那条老路
+  （`CtaController` 那整套代码与场景照旧留着，见上面「结束界面」）。
+- `onEnable` / `onDisable` 严格对称：三条 `EventBus` + `failButton` 的 `CLICK` + 全局 `input`。
+  `Fail/btn` 自己也绑了 `CLICK` 跳商店（它认领自己那块矩形，落上去的触摸到不了全局那条）；
+  `Fail/bg` 虽然铺满全屏但**没挂任何监听**，落在它上面的点击照样进全局。
+
+**「点哪里都跳」是怎么做到的（关键机制，别再想别的辙）**
+
+引擎的触摸派发链（3.8.8 源码核对过，和 §14 上面「点击碎片没反应」那条同一个根因）：
+
+- `2d/event/pointer-event-dispatcher.ts:141` `dispatchEventTouch` —— 只要有**任一**节点处理器认领了
+  这次触摸就返回 `false`；`input/input.ts` 拿到 `false` 直接 `break`，**全局 `input.on(TOUCH_START)`
+  的监听器一个都收不到**。
+- `scene-graph/node-event-processor.ts:638` `_handleTouchStart` **只看 `hitTest`**，跟「有没有注册
+  监听器」无关 —— 所以光在 `DragController.onStart` 里加个标志位 early-return 没用。必须把监听
+  `off` 掉：最后一个触摸监听被移除时（`:460` 那个 `_registerOffCallback`）引擎会把整个处理器
+  移出派发表，这个节点这才不再认领。
+- ⚠️ **「加一块全屏透明遮罩去接点击」这条路是死的**：节点处理器按**深度**排优先级，深节点在前 ——
+  全屏遮罩挡不住池子里的 `content`（它比遮罩深），结果只会是「遮罩也没接到、全局 `input` 还是收不到」。
+
+所以做法是**先让玩法那四处不再认领触摸，再挂全局监听**。四家各听 `GAME_OVER`（模块间只走
+EventBus，§4）：
+
+| 文件 | 做什么 |
+|---|---|
+| `gameplay/DragController.ts` | 把 `content` 上那四条触摸监听 `off` 掉（抽了 `unbindContent()`，与 `onDisable` 共用）；手上正拿着的那块 `sendHome(entry, true)` 弹回去 —— **不调 `release()`**，免得把 `PiecePool` 刚锁上的滚动又解回来（两条监听谁先跑不由这里决定） |
+| `gameplay/PiecePool.ts` | 调现成的 `lockScroll()`（`scrollView.enabled = false`，`ScrollView` 在 `onDisable` 里注销自己那套触摸监听） |
+| `ui/GuideController.ts` | 复用现成的 `onComplete()`（`_done = true` + `hide()`） |
+| `platform/GameCta.ts` | 复用现成的 `hide()` —— 它是 `Canvas` 的**最后一个子节点**，压在 `UILayer`（失败界面在那儿）上面，不藏会盖住 |
+
+全仓库的节点级触摸 / 点击监听只有这五处（`grep` 过 `assets/scripts/`）：`DragController` 挂在
+`content` 上的四条、引擎 `ScrollView` 自己那套、`CtaController` 的 `End/btn`、`GameCta` 自己的
+`CLICK`、`Fail/btn` 的 `Button`。前两处由 `GAME_OVER` 摘掉；`End/btn` 在 `End` 不激活时本来就不派发；
+`GameCta` 被藏掉（且它自己那下也是跳商店）；`Fail/btn` 自己接得住。
+
+- `jump()` 是 `bridge.openStore()` + 抛 `CTA_CLICK`（后者让 `AudioManager` 停掉全部音，与
+  `CtaController.onClick` 同一套顺序：跳转排在埋点前面，`EventBus.emit` 不兜异常）。
+- **`Fail` 补上了四边 Widget（2026-10-10）** —— 它原来**一个 Widget 都没有**（尺寸钉在场景里那个
+  720×1280），所以横屏画布变宽（1770×1280）之后整棵 Fail 只剩中间 720px，`Fail/bg`（`纯白` 染成
+  `rgba(0,0,0,98)` 的那层黑罩）自己那四边 Widget 是**对着父节点这个死框**对齐的，于是左右两边空着 ——
+  就是「失败界面的背景没像结束界面那样铺满横屏」。`End` 一直有四边 Widget（`mount-end-card.js` 的
+  `stretch()` 铺到 `End/bg` 为止），所以它横屏是满的。修法：`mount-endgame.js` 里加一段 `stretch(Fail)`，
+  参数与 `End` 那套逐字一致（四边 0、`alignMode = ON_WINDOW_RESIZE`、`isAlignVerticalCenter/HorizontalCenter = false`），
+  跑完落盘 `Fail` 的 `_alignFlags` 是 **45**（`TOP|BOT|LEFT|RIGHT`），与 `End` 相同。
+  - ⚠️ `mount-endgame.js` 文件头原来写着「`Fail` 自己的 `Sprite` / 四边 `Widget` 都已齐」—— **那句是错的**，
+    已改。别再照它推断 Fail 的接线状态。
+  - 这层黑罩是**全屏遮罩**（半透明），铺满之后横屏下整个画面都会被压暗，这正是要的效果。
+
+- ⚠️ **`verify-scene.js` 那两条只读检查**：`EndgameCta` 的失败界面必须挂 `UIOpacity`
+  （缺了 `this._fade` 是 null，淡入整段被静默跳过，界面硬切一下才出来），以及 `Fail/btn` 的按钮配置
+  （缩的必须是子节点，同结束界面那条）。
+- 已实测（编辑场景里手动 `onLoad`/`onEnable` 五个模块，跑完全部还原、`--no-save`）：
+  - `snap`（基线）干净：`contentTouch false`、`globalTap false`、Fail 隐藏、滚动开着、`GameCta` 开着。
+  - 失败路：`REPAIR_FAILED(3)` 后连一个**别的**槽位的 `PIECE_SHOWN(0)` 都不动（`_endIndex 3` / `failActive false`）；
+    `PIECE_SHOWN(3)` → `failActive true`、`failOpacity 0`（淡入起步）、`GAME_OVER` 抛 1 次，
+    冻结四项全中（`scrollEnabled false` / `contentTouch false` / `gameCtaActive false` / `guideRootActive false`）、
+    `globalTap true`；直接调 `onTap()` → `CTA_CLICK` 1 次、监听仍挂着（不只跳一次）。
+  - 成功路：`PIECE_REPAIRED(0, 2)` 什么都不发生；`PIECE_REPAIRED(1, 3)` 只记下 `_endIndex 1` 不跳（`gameOver 0`，
+    证明是等动画）；别的槽位 `PIECE_SHOWN(2)` 不动；`PIECE_SHOWN(1)` → `_over true`、`gameOver 1`、
+    **`failActive false`**（成功那条不弹界面）、冻结四项 + `globalTap` 同上。
+  - 碰撞：`REPAIR_FAILED(3)` + `PIECE_REPAIRED(3, 3)` 同一 tick → `_fail true`（失败赢），`PIECE_SHOWN(3)` 后 Fail 亮起。
+  - `onDisable()` 后 `EventBus._map` 回到空、`contentTouch false`、`globalTap false`（注册对称）。
+- ⚠️ **编辑模式下 `input.off` 是空操作**（`input.ts` 的 `EDITOR_NOT_IN_PREVIEW` 早退），组件 `onDisable`
+  里那次注销不会生效 —— 写探针时得绕过 `input` 直接对 `cc.input._inputEventDispatcher._inputEventTarget`
+  调 `off` 清残留，否则读到的是上一轮留下的监听。**运行期没有这个问题。**
+- ⚠️ **观感只能开 Game View / 真机**：编辑模式不 tick tween 也不 tick 调度器，上面验的是「谁在什么时候
+  抛、状态对不对」，不是「淡入顺不顺、跳不跳得出去」。真机上还要过一遍「**点哪都跳**」这条路径
+  （编辑器里没有 mraid，`openStore()` 走降级路只打一行日志）。
+
+**⏳ 交审前必须确认（两条，都是明确要求的副作用）**
+
+1. **成功那条也是「无用户交互自动跳转」**：第 3 块动画演完自动 `mraid.open()`，玩家一个字没点。
+   AppLovin 审核可能把自动跳转算违规项（原来只有失败那条是自动的，现在成功这条也是）。
+2. **失败界面那颗按钮上现在写的是 `TRY AGAIN`**（`Fail/btn/Img/Text` 的 Label），但点下去跳的是商店。
+   文案要不要改成 `PLAY NOW` 之类，得你定 —— 那是文案侧，我没动它。
+3. **失败之后没锁输入**这条已经解决了（`GAME_OVER` 那套冻结），但**成功那条冻结时画面停在游戏画面上**
+   （不弹任何界面），只靠全局监听跳 —— 这是按需求来的，不是漏了。
 
 **待你确认**
 
@@ -901,7 +1403,7 @@ CtaRoot                          BackgroundSwap —— 横屏把 bg 换成 横�
 
 | Inspector 里的名字 | 字段 | 挂在 |
 |---|---|---|
-| 池内碎片高度 | `pieceHeight` | `PieceFactory` @ `Canvas/PiecePoolLayer/ScrollView` |
+| 碎片最大边长 | `maxPieceSize` | `PieceFactory` @ `Canvas/PiecePoolLayer/ScrollView`（池里按素材原始像素显示，宽或高超过它的等比缩到它，见 §14） |
 | 亮边参数（淡入 / 淡出 / 呼吸一次 / 光晕外扩比 / 光边宽度比） | `glowParams`（`GlowConfig`，折叠分组） | 同上 |
 | 发射步长 / 光点存活时长 / 光点尺寸 / 单帧最多补几颗 | `step` / `life` / `dotSize` / `maxPerFrame` | `TrailEmitter` @ `EffectLayer` |
 | 单块·总修复各三项（时长 / 光带半宽比 / 补光强度） | `repairTime` … `completeFlash` | `RepairSweep` @ `EffectLayer` |
@@ -914,18 +1416,25 @@ CtaRoot                          BackgroundSwap —— 横屏把 bg 换成 横�
 | 换节点延迟 | `swapDelay` | `PieceSlot` @ `Slot_03`（毛衣；**只在关了「修复揭晓」时生效**，现在是 0.45，见 §14） |
 | 换节点渐显时长 | `swapFadeTime` | 同上（毛衣；默认 0.25，填 0 退回硬切，两边都得挂 `UIOpacity`，见 §14） |
 | 进度条填充缓动时长 | `fillTime` | `ProgressController` @ `UILayer` |
+| 进度条外观（底色 / 透明度 / 尺寸） | 无 —— 就是 `进度条底` / `进度条` 两个节点上 `Sprite` 的 color / `UITransform` | 见 §14「进度条」；改完不用动代码 |
 | 结束界面入场（背景淡入 / 下落时长 / 出发高度 / 按钮间隔 / 弹跳次数 / 首跳高度 / 衰减 / 首跳时长 / 压扁幅度 / 压扁时长） | `bgFadeTime` / `dropTime` / `dropMargin` / `stagger` / `bounces` / `bounceHeight` / `bounceDecay` / `bounceTime` / `squash` / `squashTime` | `CtaController` @ `CtaLayer`（见 §14） |
+| 终局跳转（修好几个就跳商店 / 失败界面淡入时长） | `winCount` / `failFadeTime` | `EndgameCta` @ `UILayer/CtaLayer`（见 §14。`winCount` 填 0 退回「全部修完出结束界面」那条老路） |
 | 引导节奏 + 副本 / 手指外观（空闲延迟 / 循环间隔 / 点击提示 / 点击下沉 / 拖动时长 / 淡入淡出 / 副本透明度 / 手指偏移） | `idleDelay` / `loopGap` / `tapTime` / `tapDepth` / `moveTime` / `fadeTime` / `ghostOpacity` / `fingerOffset` | `GuideController` @ `UILayer` |
 | 完成背景扩散时长 / 羽化半宽 | `revealTime` / `feather` | `SceneBgSwap` @ `GameLayer/Scene_BG` |
+| 待机动作：左右摆幅 / 上下摆幅 / 横向拉伸幅度 / 纵向拉伸幅度 / 一次循环时长 / 起始相位 | `swayX` / `swayY` / `stretchX` / `stretchY` / `period` / `phase` | `IdleMotion` @ `GameLayer/Scene_BG/马桶隐藏节点/气体大`（`swayX = 25`）与 `/气体小`（`stretchY = 0.12`）（见 §14） |
+| 通马桶：水位节点 / 挪到位的位置 / 旋转 / 时长 / 抽动次数 / 幅度 / 单次时长 / 脏水最终缩放 / 额外下沉 / 消失时长 | `water` / `moveTo` / `rotateTo` / `moveTime` / `bobCount` / `bobDepth` / `bobTime` / `waterShrink` / `waterDrop` / `fadeTime` | `FlushAction` @ `Slot_02`（见 §14）。**排水时长不是参数** —— 水每抽一下缩一档，总时长 = `bobCount × bobTime × 2` |
+| 扫地：物品父节点 / 中点微调 / 挪动时长 / 摆动角度 / 来回次数 / 单程时长 / 摆动时右移距离 / 物品渐隐间隔 / 物品渐隐时长 | `items` / `offset` / `moveTime` / `sweepAngle` / `sweepCycles` / `sweepTime` / `sweepMoveX` / `gap` / `fadeTime` | `BroomSweep` @ `Slot_03`（见 §14） |
+| 喷瓶：两张贴图 / 气体节点 / 摇晃次数 / 摇晃角度 / 单程时长 / 起始高度 / 下落时长 / 气体渐隐时长 / 气体先后间隔 / 喷雾图缩放 / 喷雾图偏移 | `noMistFrame` / `mistFrame` / `gases` / `shakeCount` / `shakeAngle` / `shakeTime` / `mistRise` / `mistDropTime` / `gasFadeTime` / `gasStagger` / `mistScale` / `mistOffset` | `SprayAction` @ `Slot_05`（见 §14）。两个图口由 `mount-spray-action.js` 按 `.meta` 现算赋进去，**另外那七个调参也由它写**（在 Inspector 里改过再跑一次会被复位）；`mistScale` / `mistOffset` 是**对齐两个瓶子用的量**，换美术得重新量（量法写在 §14） |
+| 地上脏水：失败后延迟 / 渐显时长 | `delay` / `revealTime` | `GroundWater` @ `Scene_BG/地上脏水`（见 §14。**方向不在这儿**，是节点 Sprite 上的 FILLED/VERTICAL/`fillStart = 1`，改错了就是反着刷或整块不出现） |
 | 音频配置列表（激活事件 / 音效 / 音量 / 渐入 / 渐出 / 结束事件）+ 总音量 | `cues` / `volume` | `AudioManager` @ `Canvas`（见 §14） |
 | 横屏放大倍率 / 拼图区与进度条间距 / 两栏间距 / 竖栏最大高度 | `scale` / `columnGap` / `railGap` / `maxRailHeight` | `LandscapeLayout` @ `Canvas`（见 §7.1） |
 | 横屏底图旋转（度）/ 缩放系数 | `poolBgRotate` / `poolBgScale` | 同上（见 §7.1；`poolBgScale = 1` 即等比盖住竖栏） |
-| 常驻按钮：呼吸放大比 / 呼吸单程时长 | `breathScale` / `breathTime` | `GameCta` @ `Canvas/GameCta`（见 §14）。**位置不在这儿**：竖屏是同一节点上的 Widget（`bottom = 6`），横屏是 `LandscapeLayout` 的 `cta` 口；尺寸在节点自己的 `UITransform` 上，改之前先看那条 56px 的限制 |
+| 常驻按钮：呼吸放大比 / 呼吸单程时长 | `breathScale` / `breathTime` | `GameCta` @ `Canvas/GameCta`（见 §14）。**位置不在这儿**：竖屏是同一节点上的 Widget（`bottom = 6`），横屏是 `LandscapeLayout` 的 `cta` 口。**外观也不在这儿**：底色是 `Bg` 上 `Sprite` 的 color、圆角靠那张 `圆角白.png` 的九宫格 inset（改 inset 要改 `.meta` 重新导入），文案 / 字号在 `Text` 的 Label 上；尺寸在节点自己的 `UITransform` 上，**改高度前先看那条 56px 的限制**（宽度不受限） |
 
 三条踩过的坑：
 
 - **亮边的 5 个参数挂在 `PieceFactory` 上，不在 `PieceGlow` 上**：碎片是运行时建的节点，场景里没有实例，参数没地方存。`GlowConfig` 是个 `@ccclass` 数据类，Inspector 里显示成可折叠分组，`PieceFactory.create()` 把它传给 `PieceGlow.apply()`。
-- **池内碎片间距也不在这里**：落点就是 `Canvas/PiecePoolLayer/ScrollView/view/content` 上那个 `Layout` 组件自己的 `spacingX`（还有四边的 padding）。以前 `LayoutController` 转屏时会按 0.6 倍写回它，现在**没有任何代码碰它**，你在 Inspector 里改的就是最终值。
+- **池内碎片间距也不在这里**：落点就是 `Canvas/PiecePoolLayer/ScrollView/view/content` 上那个 `Layout` 组件自己的 `spacingX`（还有四边的 padding）。⚠️ 2026-10-10 起 `spacingX` **由 `PiecePool.fitSpacing` 在建池子那一下按可视宽度现算并写回**（一屏最多 4 块，见 §14），所以在 Inspector 里改 `spacingX` 会被覆盖 —— **只有四边 padding 是你可以改的**。`spacingY` 是横屏竖栏用的，由 `LandscapeLayout` 在转屏时现读 `spacingX` 填，也别在那儿调。
 - **新增 `@property` 后编辑器要刷一次资源库**（MCP `refresh_assets`）才会出现在已有组件实例的 Inspector 上：新字段进来了，但场景里那些老实例的属性表还是旧的。不用重启编辑器、不用重开场景。这次是靠 `query-node` 返回的数据模型（字段 + `displayName` + `value` + `default`）逐项核对确认的，比截图可靠。
   - ⚠️ **`refresh_assets` 在 `core` profile 里（本仓库的默认配置，`funplay-cocos-mcp.config.json`）不可用**，`run_project_preview` 也一样。绕法：`tools/js/refresh.js` 走 scene/editor 侧的 `Editor.Message.request('asset-db', 'refresh-asset', <dbUrl>)`（就是那个工具的实现）。**改完 `.ts` 不刷，编辑器内存里跑的还是旧类** —— 探针调 `comp.toLandscape()` 会调到旧实现，白测一轮。
 

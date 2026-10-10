@@ -60,7 +60,7 @@ exports.onAfterBuild = function (options) {
 
     child.on('close', (code) => {
       if (code === 0) {
-        console.log(`${TAG}单文件产物已生成`);
+        console.log(`${TAG}产物已生成（AppLovin / Moloco / Google 三份，默认落在 build/ 下）`);
         resolve();
       } else {
         reject(new Error(`${TAG}打包失败（退出码 ${code}），看上面的 ❌ 列表`));

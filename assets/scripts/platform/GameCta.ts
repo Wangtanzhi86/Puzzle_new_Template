@@ -11,6 +11,9 @@ const { ccclass, property } = _decorator;
  *
  * 位置不归它管：竖屏是节点上那个「贴下沿 + 水平居中」的 Widget，横屏由 `LandscapeLayout`
  * 挪到左边空位的中点（见 §7.1 / §14）。
+ *
+ * `GAME_OVER` 也收掉它：它是 `Canvas` 的最后一个子节点，压在 `UILayer`（失败界面在那儿）上面；
+ * 而且它自己那颗按钮认领触摸，会和终局那条「点哪都跳」的全局监听抢。
  */
 @ccclass('GameCta')
 export class GameCta extends Component {
@@ -28,12 +31,14 @@ export class GameCta extends Component {
     protected onEnable(): void {
         this.node.on(Button.EventType.CLICK, this.onClick, this);
         EventBus.on(GameEvent.END_SHOW, this.hide, this);
+        EventBus.on(GameEvent.GAME_OVER, this.hide, this);
         this.breathe();
     }
 
     protected onDisable(): void {
         this.node.off(Button.EventType.CLICK, this.onClick, this);
         EventBus.off(GameEvent.END_SHOW, this.hide, this);
+        EventBus.off(GameEvent.GAME_OVER, this.hide, this);
         Tween.stopAllByTarget(this.node);
     }
 

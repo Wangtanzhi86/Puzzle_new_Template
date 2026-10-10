@@ -14,7 +14,7 @@ interface PortraitState {
     viewPos: Vec3; viewW: number; viewH: number;
     contentPos: Vec3; contentW: number; contentH: number;
     ctaPos: Vec3; ctaWidget: boolean;
-    type: number; spacingX: number; spacingY: number;
+    type: number; spacingY: number;
     padL: number; padR: number; padT: number; padB: number;
     horizontal: boolean; vertical: boolean;
 }
@@ -29,7 +29,8 @@ interface PortraitState {
  *
  * 只改位置 / 旋转 / 缩放 / 尺寸，玩法逻辑一行不碰：缺口框、吸附半径、拿起倍率全部按世界坐标现算
  * （`PieceSlot.box()` / `PiecePool.carryScaleOf`），拼图区放大对吸附是透明的。碎片在池里仍是
- * `PieceFactory.pieceHeight` 那么大、不跟着放大，拿起来才长到缺口尺寸 —— 那本来就是 `carryScaleOf` 干的事。
+ * 素材原始像素那么大（`PieceFactory` 那条上限也在），不跟着放大，拿起来才长到缺口尺寸 ——
+ * 那本来就是 `carryScaleOf` 干的事。
  *
  * 还负责把碎片池 `Layout` 的交叉轴压平（`_isAlign`）：引擎只写主轴，另一条轴沿用子节点上一次的坐标，
  * 不压的话一转屏，竖屏那一行的 x 就被当成竖列的列坐标，四块连成一条斜线。这个勾**不能存场景**（它的
@@ -87,7 +88,7 @@ export class LandscapeLayout extends Component {
             contentPos: sv.content.position.clone(),
             ctaPos: this.cta.position.clone(), ctaWidget: this.cta.getComponent(Widget).enabled,
             contentW: sv.content.getComponent(UITransform).width, contentH: sv.content.getComponent(UITransform).height,
-            type: layout.type, spacingX: layout.spacingX, spacingY: layout.spacingY,
+            type: layout.type, spacingY: layout.spacingY,
             padL: layout.paddingLeft, padR: layout.paddingRight, padT: layout.paddingTop, padB: layout.paddingBottom,
             horizontal: sv.horizontal, vertical: sv.vertical,
         };
@@ -127,8 +128,10 @@ export class LandscapeLayout extends Component {
         // 碎片池：底部横向条带 → 右侧竖栏
         layout.type = Layout.Type.VERTICAL;
         layout.alignVertical = true;   // 这一向下把 x 压平（见 onLoad 那段）
-        layout.spacingX = 0;
-        layout.spacingY = p.spacingX;
+        // 竖栏的间距沿用横排那个 —— 它现在是 `PiecePool.fitSpacing` 按可视宽度现算的（比场景里存的 24 大得多，
+        // `onLoad` 快照里那份早过期了），所以**现读**，不从快照取。横排那个 `spacingX` 一个字不动
+        //（VERTICAL 不看它），转回竖屏时天然还是对的，`restorePortrait` 不用管。
+        layout.spacingY = layout.spacingX;
         layout.paddingLeft = p.padL;
         layout.paddingRight = p.padR;
         layout.paddingTop = p.padL;      // 竖栏上下也留边，取左右那个值
@@ -222,7 +225,6 @@ export class LandscapeLayout extends Component {
         const layout = sv.content.getComponent(Layout);
         layout.type = p.type;
         layout.alignHorizontal = true;   // 回到横排，把 y 压平（见 onLoad 那段）
-        layout.spacingX = p.spacingX;
         layout.spacingY = p.spacingY;
         layout.paddingLeft = p.padL;
         layout.paddingRight = p.padR;

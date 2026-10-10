@@ -30,16 +30,24 @@ export class DragController extends Component {
         content.on(NodeEventType.TOUCH_CANCEL, this.onEnd, this);
         EventBus.on(GameEvent.PIECE_SNAP_SUCCESS, this.onSnapSuccess, this);
         EventBus.on(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
+        EventBus.on(GameEvent.GAME_OVER, this.onGameOver, this);
     }
 
     protected onDisable(): void {
+        this.unbindContent();
+        EventBus.off(GameEvent.PIECE_SNAP_SUCCESS, this.onSnapSuccess, this);
+        EventBus.off(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
+        EventBus.off(GameEvent.GAME_OVER, this.onGameOver, this);
+    }
+
+    /** 摘掉 `content` 上的触摸监听。最后一个监听被移除时引擎会把整个节点处理器移出派发表，
+     *  这一格这才不再「认领」落在池子上的触摸 —— 终局后那些点击要留给全局 `input`（`EndgameCta`）。 */
+    private unbindContent(): void {
         const content = this.pool.content;
         content.off(NodeEventType.TOUCH_START, this.onStart, this);
         content.off(NodeEventType.TOUCH_MOVE, this.onMove, this);
         content.off(NodeEventType.TOUCH_END, this.onEnd, this);
         content.off(NodeEventType.TOUCH_CANCEL, this.onEnd, this);
-        EventBus.off(GameEvent.PIECE_SNAP_SUCCESS, this.onSnapSuccess, this);
-        EventBus.off(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
     }
 
     get holding(): boolean {
@@ -95,6 +103,16 @@ export class DragController extends Component {
             this.release();
             this.pool.sendHome(entry, true);
         }
+    }
+
+    /** 终局：拖拽到此为止。监听已经摘了，手上那块就得自己放回去（不走 `release()`，
+     *  免得把 `PiecePool` 刚锁上的滚动又解回来 —— 两条监听谁先跑不由这里决定）。 */
+    private onGameOver(): void {
+        this.unbindContent();
+        if (!this._entry) return;
+        const entry = this._entry;
+        this._entry = null;
+        this.pool.sendHome(entry, true);
     }
 
     private release(): void {

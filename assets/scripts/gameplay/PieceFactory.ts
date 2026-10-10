@@ -7,12 +7,13 @@ const { ccclass, property } = _decorator;
 
 /**
  * 碎片是运行时实例（§3 允许），所以这里代码建节点，不用 prefab。
- * 高度固定，宽度按图片自身比例算 —— 碎片永远不会被拉变形。
+ * 池里按**素材原始像素**显示（不放大也不缩小），宽或高超过 `maxPieceSize` 的等比缩到它 ——
+ * 尺寸完全由图片自己决定，不会被拉变形。间隔由 `PiecePool.fitSpacing` 照这些尺寸现算（一屏 4 块）。
  */
 @ccclass('PieceFactory')
 export class PieceFactory extends Component {
-    @property({ displayName: '池内碎片高度（px）', tooltip: '宽度按图片比例自动算，不会被拉变形' })
-    pieceHeight = 190;
+    @property({ displayName: '碎片最大边长（px）', tooltip: '池里按素材原始像素显示；宽或高超过这个值的等比缩到它（别填 0）' })
+    maxPieceSize = 200;
 
     @property({ type: EffectAsset, displayName: '亮边材质' }) glowEffect: EffectAsset = null;
 
@@ -40,10 +41,11 @@ export class PieceFactory extends Component {
         // 动态图集会把碎片重新排版，亮边 shader 往轮廓外采样就会读到隔壁图的像素
         if (frame) frame.packable = false;
 
-        const ratio = frame ? frame.rect.width / frame.rect.height : 1;
-        const w = this.pieceHeight * ratio;
-        node.getComponent(UITransform).setContentSize(w, this.pieceHeight);
-        if (FeatureFlags.pieceGlow) node.getComponent(PieceGlow).apply(this.glowEffect, frame, w, this.pieceHeight, this.glowParams);
+        const k = frame ? Math.min(1, this.maxPieceSize / Math.max(frame.rect.width, frame.rect.height)) : 1;
+        const w = frame ? frame.rect.width * k : this.maxPieceSize;
+        const h = frame ? frame.rect.height * k : this.maxPieceSize;
+        node.getComponent(UITransform).setContentSize(w, h);
+        if (FeatureFlags.pieceGlow) node.getComponent(PieceGlow).apply(this.glowEffect, frame, w, h, this.glowParams);
 
         node.setParent(parent);
         node.setScale(1, 1, 1);

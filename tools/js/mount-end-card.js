@@ -9,8 +9,10 @@
  *    这条链补齐之后 `bg` 才真的铺满画布（横屏画布约 1770×1280，不补就是中间一块 720 宽的卡片）。
  *    `End/bg` 顺带改成 `SLICED`（九宫格别让它横拉时构图变形）并挂 `UIOpacity`（起播要淡入）。
  *
- * 2. `CtaRoot` 再挂一个 `BackgroundSwap`：横屏把 `End/bg` 换成 横屏背景.jpg，转回来还回去。
- *    和 `Canvas/BackgroundLayer` 上那个是同一个组件的两个实例，互不干扰。
+ * 2. `CtaRoot` 再挂一个 `BackgroundSwap`（`bg` 口 = `End/bg` 的 Sprite），和
+ *    `Canvas/BackgroundLayer` 上那个是同一个组件的两个实例，互不干扰。
+ *    ⚠️ 横屏那张底图（`landscapeFrame`）**不在这里配**：旧素材已删，场景里是 null，
+ *    等美术出图后在 Inspector 里拖进去（别再写死 uuid —— 重新导入就会变）。
  *
  * 3. `End/btn` 拆出一个子节点 `Img` 承接那张 Sprite，`Button` 的 `target` 指向 `Img`。
  *    ⚠️ **不能直接缩 `btn` 自己**：引擎的 `_handleTouchEnd` 会拿**当前缩放后**的矩形做 hitTest
@@ -47,14 +49,9 @@ bgSp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
 bgSp.type = cc.Sprite.Type.SLICED;
 if (!bgNode.getComponent(cc.UIOpacity)) bgNode.addComponent(cc.UIOpacity);
 
-// 横屏底图：竖屏那张不另配口，`BackgroundSwap.onLoad` 读的就是 `bg` 上挂着的那张
-const LANDSCAPE_UUID = '35ce0428-845c-425b-bd5b-a528c2863f02@f9941';
-const frame = await new Promise((resolve, reject) => {
-    cc.assetManager.loadAny(LANDSCAPE_UUID, (err, asset) => (err ? reject(new Error(LANDSCAPE_UUID + ' -> ' + err.message)) : resolve(asset)));
-});
+// 竖屏那张底图不另配口：`BackgroundSwap.onLoad` 读的就是 `bg` 上挂着的那张
 const swap = root.getComponent('BackgroundSwap') || root.addComponent('BackgroundSwap');
 swap.bg = bgSp;
-swap.landscapeFrame = frame;
 
 // 按钮：Sprite 挪到子节点 `Img`，命中框留在 `btn` 自己身上
 const btnSp = btnNode.getComponent(cc.Sprite);
@@ -102,7 +99,7 @@ const four = (n) => {
 return {
     widget: { cta: four(cta), root: four(root), end: four(end), bg: four(bgNode) },
     endSize: [end.getComponent(cc.UITransform).width, end.getComponent(cc.UITransform).height],
-    bg: { type: bgSp.type, sizeMode: bgSp.sizeMode, size: [bgNode.getComponent(cc.UITransform).width, bgNode.getComponent(cc.UITransform).height], opacity: !!bgNode.getComponent(cc.UIOpacity), frame: bgSp.spriteFrame.name },
+    bg: { type: bgSp.type, sizeMode: bgSp.sizeMode, size: [bgNode.getComponent(cc.UITransform).width, bgNode.getComponent(cc.UITransform).height], opacity: !!bgNode.getComponent(cc.UIOpacity), frame: bgSp.spriteFrame ? bgSp.spriteFrame.name : '<空>' },
     swap: { node: swap.node.name, bg: swap.bg.node.name, landscapeFrame: swap.landscapeFrame ? swap.landscapeFrame.name : null },
     button: { node: button.node.name, transition: button.transition, zoomScale: button.zoomScale, target: button.target ? button.target.name : null, spriteOnBtnNode: !!btnNode.getComponent(cc.Sprite), imgFrame: imgSp.spriteFrame ? imgSp.spriteFrame.name : null, imgSize: [imgUt.width, imgUt.height] },
     ctrl: { ctaRoot: ctrl.ctaRoot.name, bg: ctrl.bg.name, logo: ctrl.logo.name, ctaButton: ctrl.ctaButton ? ctrl.ctaButton.node.name : null, bridge: ctrl.bridge ? ctrl.bridge.node.name : null },

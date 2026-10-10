@@ -7,6 +7,7 @@ const wanted = {
     GuideController: ['root', 'ghost', 'finger'],
     ProgressController: ['root', 'label', 'fill'],
     CtaController: ['ctaRoot', 'ctaButton', 'bridge', 'bg', 'logo'],
+    EndgameCta: ['bridge', 'failRoot', 'failButton'],
     GameCta: ['bridge'],
     GameEntry: ['levelFactory'],
     MraidBridge: [],
@@ -19,13 +20,14 @@ const wanted = {
     FeatureFlags: [],
     TrailEmitter: [],
     RepairSweep: ['sweepEffect'],
-    SwayMotion: ['opacity'],
-    RiseReveal: ['sprite', 'opacity'],
-    FrameLoop: ['sprite', 'frames'],
-    TapeReveal: ['tapes'],
-    RepairReveal: ['frames'],
+    RepairReveal: [],
     CircleReveal: ['revealEffect'],
     SceneBgSwap: ['revealEffect', 'revealView'],
+    IdleMotion: [],
+    FlushAction: ['water'],
+    BroomSweep: ['items'],
+    SprayAction: ['mistFrame'],
+    GroundWater: [],
     LandscapeLayout: ['gameLayer', 'progressLayer', 'poolLayer', 'poolBg', 'scrollView', 'cta'],
     BackgroundSwap: ['bg', 'landscapeFrame'],
 };
@@ -64,6 +66,15 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
     }
     for (const c of n.children) checkSwap(c);
 })(canvas);
+// 两种状态的槽位：配了「达标后的修复图」就必须配「前置槽位」—— 不配前置 `meetsRequires()` 恒为 true，
+// 永远走达标那条，失败分支（展示未达标那张 + 抛 REPAIR_FAILED）一次都走不到
+(function checkAlt(n) {
+    const slot = n.getComponent('PieceSlot');
+    if (slot && slot.altView && !slot.requires.length) {
+        out.missing.push('PieceSlot@' + n.name + ' 配了「达标后的修复图」却没配「前置槽位」，失败分支永远走不到');
+    }
+    for (const c of n.children) checkAlt(c);
+})(canvas);
 // 引导副本的半透明与淡入淡出全靠 UIOpacity，缺了组件运行期收不到（`hide()` 里取到 null 直接跳过）
 (function checkGuide(n) {
     const g = n.getComponent('GuideController');
@@ -85,18 +96,55 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
     }
     for (const c of n.children) checkAudio(c);
 })(canvas);
-// 胶带揭晓靠 FILLED/HORIZONTAL 的 fillRange 刷出来，配错了就是整条不出现
-(function checkTapes(n) {
-    const tr = n.getComponent('TapeReveal');
-    if (tr) {
-        for (let i = 0; i < tr.tapes.length; i++) {
-            const sp = tr.tapes[i];
-            if (!sp || sp.type !== cc.Sprite.Type.FILLED || sp.fillType !== cc.Sprite.FillType.HORIZONTAL) {
-                out.missing.push('TapeReveal@' + n.name + ' 第' + (i + 1) + '条胶带不是 FILLED/HORIZONTAL');
+// 地上脏水靠 FILLED/VERTICAL 的 fillRange 0→−1 从顶上刷下来：方向反了就是从下往上，配错了整块不出现
+(function checkGroundWater(n) {
+    const gw = n.getComponent('GroundWater');
+    if (gw) {
+        const sp = n.getComponent(cc.Sprite);
+        if (!sp || sp.type !== cc.Sprite.Type.FILLED || sp.fillType !== cc.Sprite.FillType.VERTICAL || sp.fillStart !== 1) {
+            out.missing.push('GroundWater@' + n.name + ' 不是 FILLED/VERTICAL/fillStart=1，从上往下刷不出来');
+        }
+    }
+    for (const c of n.children) checkGroundWater(c);
+})(canvas);
+// 收尾动作（通马桶 / 扫地，§14）：淡出全靠 UIOpacity，缺一个就是取到 null 直接抛（淡出那步炸了，
+// 这一格的 PIECE_SHOWN 就永远不抛 —— 最后一格修好时完成背景和结束界面都不出来）。
+// 扫地那组还得真有子物品可扫，空的就是整段什么都不发生。
+(function checkSpot(n) {
+    const slot = n.getComponent('PieceSlot');
+    if (!slot) {
+        for (const c of n.children) checkSpot(c);
+        return;
+    }
+    const flush = n.getComponent('FlushAction');
+    if (flush && flush.water && !flush.water.getComponent(cc.UIOpacity)) {
+        out.missing.push('FlushAction@' + n.name + ' 脏水没挂 UIOpacity，淡出起不来');
+    }
+    const sweep = n.getComponent('BroomSweep');
+    if (sweep && sweep.items) {
+        if (!sweep.items.children.length) {
+            out.missing.push('BroomSweep@' + n.name + ' 物品父节点下没有子节点，扫不动');
+        }
+        for (const c of sweep.items.children) {
+            if (!c.getComponent(cc.UIOpacity)) {
+                out.missing.push('BroomSweep@' + n.name + ' 物品「' + c.name + '」没挂 UIOpacity，渐隐起不来');
             }
         }
     }
-    for (const c of n.children) checkTapes(c);
+    const spray = n.getComponent('SprayAction');
+    if (spray) {
+        for (const g of spray.gases) {
+            if (!g.getComponent(cc.UIOpacity)) {
+                out.missing.push('SprayAction@' + n.name + ' 气体「' + g.name + '」没挂 UIOpacity，渐隐起不来');
+            }
+        }
+    }
+    // 喷瓶不收修复图（它是硬隐藏），所以不并进下面那条「有收尾动作就得挂 UIOpacity」
+    const acted = flush || sweep;
+    if (acted && slot.repairedView && !slot.repairedView.node.getComponent(cc.UIOpacity)) {
+        out.missing.push('@' + n.name + ' 有收尾动作但修复图没挂 UIOpacity，收尾那一步的淡出起不来');
+    }
+    for (const c of n.children) checkSpot(c);
 })(canvas);
 // 结束界面（§14）：`UILayer` 本来就是四边对齐的，`CtaLayer → CtaRoot → End → bg` 这条链少一环
 // 底图就铺不满画布（横屏画布约 1770 宽，缺了就是中间一块 720 宽的卡片）。
@@ -167,6 +215,16 @@ function checkButton(path, name) {
             out.missing.push('Canvas/GameCta 顶边比碎片池可点区下沿高 ' + (top - poolBottom).toFixed(1) + 'px，那一段点不到');
         }
     }
+})();
+// 终局跳转（§14）：修满 3 个或修错 → 跳商店，之后点屏幕任意处再跳。
+// 淡入打的是 `Fail` 自己的 `UIOpacity`，缺了组件整段淡入被静默跳过（界面硬切一下才出来）；
+// 终局后 `Fail/bg` 虽然铺满全屏但不认领触摸（点击靠全局 `input` 收），上面那颗按钮得自己接得住。
+(function checkEndgame() {
+    const ctrl = canvas.getChildByPath('UILayer/CtaLayer').getComponent('EndgameCta');
+    if (ctrl && ctrl.failRoot && !ctrl.failRoot.getComponent(cc.UIOpacity)) {
+        out.missing.push('EndgameCta 的失败界面没挂 UIOpacity，淡入起不来');
+    }
+    checkButton('UILayer/CtaLayer/CtaRoot/Fail/btn', 'Fail/btn');
 })();
 // 撑满屏幕（§7.1）：运行时画布横竖屏都会比设计稿多一条边，靠 Widget 重排撑满。
 // 下面三处是钉住尺寸的，掉了就是「黑边没了、构图却散了」：

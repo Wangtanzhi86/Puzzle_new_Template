@@ -60,6 +60,8 @@ export class GuideController extends Component {
     private _ghostOpacity: UIOpacity = null;
     private _showing = false;
     private _done = false;
+    /** 正在飞的动画段数。> 0 时计时器停住 —— 引导绝不盖在动画上 */
+    private _holds = 0;
 
     protected onEnable(): void {
         this.hide();
@@ -68,6 +70,9 @@ export class GuideController extends Component {
         EventBus.on(GameEvent.POOL_BUILT, this.onPoolBuilt, this);
         EventBus.on(GameEvent.PIECE_PICK, this.onTouch, this);
         EventBus.on(GameEvent.LEVEL_COMPLETE, this.onComplete, this);
+        EventBus.on(GameEvent.GAME_OVER, this.onComplete, this);
+        EventBus.on(GameEvent.GUIDE_HOLD, this.onHold, this);
+        EventBus.on(GameEvent.GUIDE_RESUME, this.onResume, this);
         input.on(Input.EventType.TOUCH_START, this.onTouch, this);
     }
 
@@ -76,12 +81,16 @@ export class GuideController extends Component {
         EventBus.off(GameEvent.POOL_BUILT, this.onPoolBuilt, this);
         EventBus.off(GameEvent.PIECE_PICK, this.onTouch, this);
         EventBus.off(GameEvent.LEVEL_COMPLETE, this.onComplete, this);
+        EventBus.off(GameEvent.GAME_OVER, this.onComplete, this);
+        EventBus.off(GameEvent.GUIDE_HOLD, this.onHold, this);
+        EventBus.off(GameEvent.GUIDE_RESUME, this.onResume, this);
         input.off(Input.EventType.TOUCH_START, this.onTouch, this);
         this.hide();
     }
 
     private onLevelBuilt(data: SlotData[]): void {
         this._data = data;
+        this._holds = 0;
     }
 
     /** 池里第一块碎片就是这一遍的主角 */
@@ -96,13 +105,26 @@ export class GuideController extends Component {
         this.armIdle();
     };
 
+    /** 通关，或者终局（`GAME_OVER`）—— 两种都不该再教了 */
     private onComplete = (): void => {
         this._done = true;
         this.hide();
     };
 
+    /** 某段修复动画开演：先把在等的计时器撤掉，动画期间不会再弹 */
+    private onHold = (): void => {
+        this._holds++;
+        this.unschedule(this.show);
+    };
+
+    /** 动画演完：放行，`idleDelay` 从头起算（是「暂停 + 重来」，不是接着上次剩的时间） */
+    private onResume = (): void => {
+        if (this._holds > 0) this._holds--;
+        if (this._holds === 0) this.armIdle();
+    };
+
     private armIdle(): void {
-        if (this._done) return;
+        if (this._done || this._holds > 0) return;
         this.unschedule(this.show);
         this.scheduleOnce(this.show, this.idleDelay);
     }
@@ -149,9 +171,9 @@ export class GuideController extends Component {
             .to(this.tapTime / 2, { position: v3(off.x, off.y, 0) }, { easing: 'quadIn' })
             .start();
 
-        // 副本要长到缺口那么大（和 `PiecePool.carryScaleOf` 同一个算法）：两边都换成世界高度再比，
-        // 比值乘回副本的本地尺寸，屏幕上正好等于缺口
-        const far = base * (data.slot.height / (ut.height * piece.worldScale.y));
+        // 副本要长到「修复后那张图」那么大（和 `PiecePool.carryScaleOf` 同一个算法）：
+        // 两边都换成世界高度再比，比值乘回副本的本地尺寸，屏幕上正好等于修复后的图
+        const far = base * (data.slot.carryHeight / (ut.height * piece.worldScale.y));
         this.scheduleOnce(() => {
             tween(this._ghostOpacity).to(this.fadeTime, { opacity: this.ghostOpacity }).start();
             tween(this.root).to(this.moveTime, { worldPosition: data.slot.worldCenter }, { easing: 'sineInOut' }).start();

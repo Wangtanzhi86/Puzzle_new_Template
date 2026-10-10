@@ -1,9 +1,12 @@
 /**
- * 给拼图区背景接线：`Canvas/GameLayer/Scene_BG` 下建一个同尺寸的 `完成背景` 子节点
- * （贴图 = assets/recourses/UI及背景/完成背景.png，545×724），四边 Widget 贴住 Scene_BG；
- * Scene_BG 自己挂 `SceneBgSwap`，把子节点的 Sprite 和 `bg-reveal.effect` 接上去。
- * 全部修完、最后一格也露脸之后，这个子节点从中心以圆形羽化扩出来盖住底图，扩完自己的贴图
- * 挪到 Scene_BG 上、自己被收掉。
+ * 给拼图区背景接线：`Canvas/GameLayer/Scene_BG` 下建一个同尺寸的 `完成背景` 子节点，
+ * 四边 Widget 贴住 Scene_BG；Scene_BG 自己挂 `SceneBgSwap`，把子节点的 Sprite 和
+ * `assets/effects/bg-reveal.effect` 接上去。全部修完、最后一格也露脸之后，这个子节点从中心
+ * 以圆形羽化扩出来盖住底图，扩完自己的贴图挪到 Scene_BG 上、自己被收掉。
+ *
+ * ⚠️ `完成背景` 的贴图（旧的是 UI及背景/完成背景.png）**已随旧素材删除**，场景里现在是空的 ——
+ * 把新图拖到 `GameLayer/Scene_BG/完成背景` 的 Sprite 上即可，`SceneBgSwap.finish()` 读的就是它，
+ * 图只配一处。别再往这个脚本里写死 uuid（每次重新导入都会变）。
  *
  *   node tools/exec.mjs scene tools/js/mount-scene-bg.js
  *
@@ -13,10 +16,9 @@
 const canvas = cc.director.getScene().getChildByName('Canvas');
 const bg = canvas.getChildByPath('GameLayer/Scene_BG');
 
-const COMPLETE_UUID = '31334d7a-63f5-4c20-bc15-2a6f2874b4cb@f9941';
 const EFFECT_UUID = '45692ecc-d9dc-468b-9ee5-d35ef6475dca';
 const load = (uuid) => new Promise((res, rej) => cc.assetManager.loadAny(uuid, (e, a) => (e ? rej(new Error(uuid + ' -> ' + e.message)) : res(a))));
-const [complete, effect] = [await load(COMPLETE_UUID), await load(EFFECT_UUID)];
+const effect = await load(EFFECT_UUID);
 
 // 1. 扩散节点：同尺寸、同锚点、贴在 Scene_BG 上
 let node = bg.getChildByName('完成背景');
@@ -39,7 +41,6 @@ widget.alignMode = cc.Widget.AlignMode.ON_WINDOW_RESIZE;
 // 尺寸模式必须是 CUSTOM：四边 Widget 撑出来的框不跟着贴图的长宽变
 const sprite = node.getComponent(cc.Sprite) || node.addComponent(cc.Sprite);
 sprite.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-sprite.spriteFrame = complete;
 
 // 2. 接线
 let comp = bg.getComponent('SceneBgSwap');
@@ -51,7 +52,7 @@ return {
   node: node.name,
   nodeSize: [ut.contentSize.width, ut.contentSize.height],
   active: node.active,
-  frame: sprite.spriteFrame.name + ' | ' + sprite.spriteFrame.uuid,
+  frame: sprite.spriteFrame ? sprite.spriteFrame.name + ' | ' + sprite.spriteFrame.uuid : '<空>',
   sizeMode: sprite.sizeMode,
   widget: { t: widget.isAlignTop, b: widget.isAlignBottom, l: widget.isAlignLeft, r: widget.isAlignRight, top: widget.top, mode: widget.alignMode },
   revealEffect: comp.revealEffect ? comp.revealEffect.name + ' | ' + comp.revealEffect.uuid : null,

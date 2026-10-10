@@ -19,6 +19,9 @@ interface Drop {
  *
  * 亮出来之前整棵子树 `active = false` —— AppLovin QA 专门查「看不见却能点到」。
  * 关音效不在这儿：`AudioManager` 自己也听 `END_SHOW`，免得两个模块互相持有引用。
+ *
+ * 那条路只在「修满全部槽位」时才走到。现在终局由 `EndgameCta` 接管（修满 `winCount` 个就跳商店），
+ * 这里照旧留着 —— `EndgameCta.winCount` 填 0 就退回这套。
  */
 @ccclass('CtaController')
 export class CtaController extends Component {
