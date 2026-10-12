@@ -24,3 +24,7 @@ node_modules/
 .idea/
 # 本地备份文件
 *.bak
+# 打包产物（npm run dist 生成，改完 tools/ 重跑即可）
+dist/
+# 从参考产物里扒音频的临时目录
+extracted-audio/
