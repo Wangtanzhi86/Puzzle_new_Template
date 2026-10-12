@@ -1,0 +1,124 @@
+// 贴纸揭角 · 背面。碎片节点下一个同尺寸子节点用它 + 同一张 spriteFrame。
+//
+// 折过去的那半不是靠片元算出来的，是**顶点沿折线镜像**过去的：四个顶点各自反射到折线另一侧，
+// 整个四边形就翻过去了，uv 跟着顶点走，所以轮廓自动是碎片自己的形状，不用额外遮罩。
+// 反射是自反的仿射变换，片元里插值出来的 orig 就是「镜像前的位置」—— 拿它判断这一像素原本属不属于
+// 被掀掉的那半（不属于就不画）。front 那半 cut 掉、这半补齐，两块接在折线上严丝合缝。
+//
+// 背面画成一块**平色**（peelTint），只有贴图 alpha 当轮廓，再在贴着折线那圈亮起来 ——
+// 这点渐变就是「折起来」和「压扁的镜像」的全部差别。真要做出卷起来的圆柱面得细分顶点，
+// Sprite 只有四个顶点，做不了；0.2 秒的拿起动作里看不出来。
+//
+// 时机：碎片被拿起来那一下演一遍（0 → 1），弹回池子时倒着演回去（1 → 0）。
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: peel-back-vs:vert
+      frag: peel-back-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        peelLine: { value: [0.0, 0.0, 0.0, 0.0] }
+        peelParam: { value: [40.0, 0.45, 0.0, 0.0] }
+        peelTint: { value: [0.6, 0.6, 0.6, 1.0], editor: { type: color } }
+}%
+
+CCProgram peel-back-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+  out vec2 orig;
+
+  uniform PeelData {
+    vec4 peelLine;
+    vec4 peelParam;
+    vec4 peelTint;
+  };
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    // 镜像前的位置。反射是仿射变换，插值到片元里正好是当前像素在反射下的原像。
+    orig = pos.xy;
+
+    float s = dot(pos.xy - peelLine.zw, peelLine.xy);
+    pos.xy -= 2.0 * s * peelLine.xy;
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+
+    return pos;
+  }
+}%
+
+CCProgram peel-back-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+
+  in vec4 color;
+  in vec2 orig;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  #endif
+
+  uniform PeelData {
+    vec4 peelLine;
+    vec4 peelParam;
+    vec4 peelTint;
+  };
+
+  vec4 frag () {
+    #if USE_TEXTURE
+      // 原本落在「没被掀的那半」的像素不该出现在背面 —— 折过去的是另一半。
+      // 用的是插值出来的 orig（镜像前的世界坐标），不是当前 gl_Position。
+      float s = dot(orig - peelLine.zw, peelLine.xy);
+      if (s <= 0.0) discard;
+
+      float a = CCSampleWithAlphaSeparated(cc_spriteTexture, uv0).a;
+      float t = clamp(s / peelParam.x, 0.0, 1.0);   // 0 贴折线，1 到远端
+      vec3 c = mix(peelTint.rgb * (1.0 + peelParam.y), peelTint.rgb, t);
+      return vec4(c * color.rgb, a * color.a);
+    #else
+      return vec4(0.0);
+    #endif
+  }
+}%

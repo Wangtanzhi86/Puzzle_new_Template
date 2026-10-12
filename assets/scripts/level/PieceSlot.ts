@@ -4,6 +4,8 @@ import { GameEvent } from '../core/GameEvent';
 import { OverlayMode } from '../data/LevelTypes';
 import { CircleReveal } from '../gameplay/CircleReveal';
 import { RepairReveal } from '../gameplay/RepairReveal';
+import { StickerApply } from '../gameplay/StickerApply';
+import { PeelConfig } from '../gameplay/StickerPeel';
 import { BroomSweep } from './BroomSweep';
 import { FlushAction } from './FlushAction';
 import { RepairedSlot } from './RepairedSlot';
@@ -46,6 +48,9 @@ export class PieceSlot extends Component {
     @property({ type: Sprite, displayName: '修复前 Sprite', tooltip: '缺口的位置、尺寸、吸附半径都以它的世界包围盒为准；必须是本节点的子节点 —— 修复时整个节点会被隐藏' })
     brokenView: Sprite = null;
 
+    @property({ type: Node, displayName: '随修复前一起隐藏的节点', tooltip: '修复时和「修复前那张图」一起藏起来（比如贴在图上的数字标签）。留空不影响任何表现' })
+    hideWithBroken: Node = null;
+
     @property({ type: RepairedSlot, displayName: '修复后组件' }) repairedView: RepairedSlot = null;
 
     @property({ type: Node, displayName: '换掉：隐藏节点', tooltip: '填了它就在这一格修好之后把这个节点藏起来、把下面那个放出来（毛衣 → 好人就是这么换的），同时把这一格修复后的图收掉 —— 也就是这一格的实物不出场' })
@@ -63,11 +68,20 @@ export class PieceSlot extends Component {
     @property({ type: SpriteFrame, displayName: '碎片池用图', tooltip: '只在池里（拿在手上）显示的图。留空则退回修复后的图' })
     poolSprite: SpriteFrame = null;
 
+    @property({ displayName: '本格单独配揭角', tooltip: '勾上之后这一格碎片的揭角（掀哪个角 / 掀多大 / 快慢 / 背面颜色）全按下面那份来；不勾就用碎片工厂上那份全局的。⚠️ 勾上时下面那份是「类的默认值」不是全局那份 —— 想从全局那组起步就重跑一次 tools/js/mount-slot-peel.js' })
+    peelOverride = false;
+
+    @property({ type: PeelConfig, displayName: '揭角参数（本格）', tooltip: '只在上面那个勾上时生效' })
+    peelParams: PeelConfig = new PeelConfig();
+
     @property({ type: RepairReveal, displayName: '修复揭晓（序列帧）', tooltip: '填了它就在修复图露脸前先播一段序列帧再把它放大出来；本格配了「换掉」那两个节点时只播序列帧、不放大（实物不出场，播完直接换节点）；没填或关了开关就照旧直接显示' })
     revealAnim: RepairReveal = null;
 
     @property({ type: CircleReveal, displayName: '圆形扩散揭晓', tooltip: '来自「结束背景」那套换图手法：破损图留着垫在底下，修复图从缺口中心以圆形羽化扩出来盖掉它，扩完才收破损图。填了它这一格就整格走它 —— 上面那些揭晓都不会发生' })
     circleReveal: CircleReveal = null;
+
+    @property({ type: StickerApply, displayName: '贴纸贴平揭晓', tooltip: '和碎片揭角反着演：修复图整张出现在缺口上、一角还翘着，再把折线推向对边按平。填了它这一格就整格走它 —— 和「圆形扩散揭晓」只能填一个，两个都填时走它' })
+    stickerApply: StickerApply = null;
 
     @property({ type: FlushAction, displayName: '通马桶动作', tooltip: '填了它这一格修好后先挪到位、抽动、排水，整段演完才算这一格露面（PIECE_SHOWN 延后）' })
     flushAction: FlushAction = null;
@@ -155,6 +169,11 @@ export class PieceSlot extends Component {
         return this.repairedView ? this.repairedView.frame : null;
     }
 
+    /** 这一格自己那份揭角参数；没勾就是 null —— 调用方（碎片工厂 / 贴纸贴平）退回全局那份 */
+    get peel(): PeelConfig {
+        return this.peelOverride ? this.peelParams : null;
+    }
+
     protected onLoad(): void {
         this.node.setSiblingIndex(this.zOrder);
         if (this.brokenSprite) this.brokenView.spriteFrame = this.brokenSprite;
@@ -166,6 +185,13 @@ export class PieceSlot extends Component {
             this.repairedView.hide();
         }
         if (this.altView) this.altView.hide();
+    }
+
+    /** 收掉「修复前」那套画面：破损图 + 配在 `hideWithBroken` 上的搭子（贴图上的数字之类）。
+     *  收的时机有三处（贴纸贴平当场收 / 普通路当场收 / 圆形扩散扩完再收），都走这一句。 */
+    private hideBroken(): void {
+        this.brokenView.node.active = false;
+        if (this.hideWithBroken) this.hideWithBroken.active = false;
     }
 
     /** 返回 true 表示这次真的修好了（重复吸附同一缺口会被挡掉）。
@@ -182,13 +208,21 @@ export class PieceSlot extends Component {
         // 并抛一次失败事件 —— 这一格照旧算修好（进度照加），怎么终局由听这条事件的人决定
         this._met = this.meetsRequires();
         if (this.altView && !this._met) EventBus.emit(GameEvent.REPAIR_FAILED, slotIndex);
-        // 圆形扩散揭晓：破损图留着垫在底下，等修复图扩出来盖掉它再收（circleShown）——
-        // 这一格整格由它接管，下面的胶带 / 换节点 / 序列帧都不会发生
-        if (this.circleReveal && this.circleReveal.handles(this)) {
-            this.circleReveal.play(this, this.circleShown);
+        // 贴纸贴平：修复图整张出现（翘着一个角）再按平贴上去。破损图**吸附这一刻就收掉** ——
+        // 修复图从第一帧起就铺满整个缺口，翘起来那个角露的是贴纸背面，底下不用垫图。
+        // 和圆形扩散一样是整格接管，两个都填时走它（见那个 @property 的 tooltip）
+        if (this.stickerApply && this.stickerApply.handles(this)) {
+            this.hideBroken();
+            this.stickerApply.play(this, this.shown);
             return true;
         }
-        this.brokenView.node.active = false;
+        // 圆形扩散揭晓：破损图留着垫在底下，等修复图扩出来盖掉它再收（covered）——
+        // 这一格整格由它接管，下面的胶带 / 换节点 / 序列帧都不会发生
+        if (this.circleReveal && this.circleReveal.handles(this)) {
+            this.circleReveal.play(this, this.covered);
+            return true;
+        }
+        this.hideBroken();
         const swap = !!(this.swapHide && this.swapShow);
         // 配了替换节点（毛衣）：修复后的实物不出场 —— 序列帧播完直接换节点，露面的是换成好人的那个
         if (swap && this.revealAnim && this.revealAnim.play(this, this.swapAndShown, false)) return true;
@@ -237,9 +271,9 @@ export class PieceSlot extends Component {
         EventBus.emit(GameEvent.GUIDE_RESUME);
     };
 
-    /** 圆形扩散铺满了：这一格才算露面 —— 先把垫在底下的破损图收掉 */
-    private circleShown = (): void => {
-        this.brokenView.node.active = false;
+    /** 修复图铺满了（圆形扩散）：这一格才算露面 —— 先把垫在底下的破损图收掉 */
+    private covered = (): void => {
+        this.hideBroken();
         this.shown();
     };
 

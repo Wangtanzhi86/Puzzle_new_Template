@@ -1,4 +1,4 @@
-import { _decorator, Component, Layout, Node, ScrollView, Tween, UITransform, Vec3, tween, v3 } from 'cc';
+import { _decorator, Component, Layout, Node, ScrollView, Tween, UIOpacity, UITransform, Vec3, tween, v3 } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
 import { SlotData } from '../data/LevelTypes';
@@ -25,14 +25,27 @@ export class PiecePool extends Component {
     @property({ type: PieceFactory, displayName: '碎片工厂' }) factory: PieceFactory = null;
     @property({ type: ScrollView, displayName: '横向滚动视图' }) scrollView: ScrollView = null;
 
+    @property({ displayName: '每屏碎片数', tooltip: '池里一次只摆这么多块；这一批全部用掉才补下一批。填 0 表示整关一次全摆出来' })
+    batchSize = 3;
+
     @property({ displayName: '弹回原位时长（秒）' })
     returnTime = 0.25;
 
-    @property({ displayName: '补位滑动时长（秒）', tooltip: '一块碎片被用掉后，后面的碎片往前补位的时长；0 就是直接跳过去' })
+    @property({ displayName: '自动补位', tooltip: '关掉后一块碎片被用掉时空位就留在那儿，后面的碎片不往前补、待在原地。这一屏用光、补下一屏时空位才收掉' })
+    reflow = true;
+
+    @property({ displayName: '补位滑动时长（秒）', tooltip: '一块碎片被用掉后，后面的碎片往前补位的时长；0 就是直接跳过去。关掉上面那个开关时不起作用' })
     reflowTime = 0.3;
 
+    @property({ displayName: '换批淡入时长（秒）', tooltip: '下一批补上来时每块碎片的淡入时长；0 就是直接出现' })
+    batchFadeTime = 0.25;
+
     private _entries: PieceEntry[] = [];
+    /** 已经用掉、位置却还留在池里的碎片（关掉「自动补位」时）。它们的 `spacer` 就是那个空位 */
+    private _gaps: PieceEntry[] = [];
     private _data: SlotData[] = [];
+    /** `_data` 里下一块该摆出来的碎片的下标。一批一批往前推，摆完就是收摊 */
+    private _next = 0;
 
     protected onEnable(): void {
         EventBus.on(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
@@ -64,14 +77,29 @@ export class PiecePool extends Component {
     private onLevelBuilt(data: SlotData[]): void {
         this.clear();
         this._data = data;
-        for (let i = 0; i < data.length; i++) {
-            const piece = this.factory.create(data[i].slot.pieceFrame, this.content);
-            this._entries.push({ piece, slotIndex: i, spacer: null });
-        }
-        this.fitSpacing();
+        this._next = 0;
+        this.buildBatch(false);
         this.scrollToStart();
         // 抛出去的是 `_entries` 本身：碎片被用掉时它自己会 splice，引导那边不用重新订阅
         EventBus.emit(GameEvent.POOL_BUILT, this._entries);
+    }
+
+    /** 摆一批碎片。开场摆第一屏（不淡入），这一屏用光后在 `consume` 里补下一屏（淡入）。
+     *  摆不满一批（剩下的不到 `batchSize`）就摆多少算多少。 */
+    private buildBatch(animate: boolean): void {
+        const size = this.batchSize > 0 ? this.batchSize : this._data.length;
+        const end = Math.min(this._next + size, this._data.length);
+        for (let i = this._next; i < end; i++) {
+            const piece = this.factory.create(this._data[i].slot, this.content);
+            this._entries.push({ piece, slotIndex: i, spacer: null });
+            if (animate && this.batchFadeTime > 0) {
+                const op = piece.getComponent(UIOpacity);
+                op.opacity = 0;
+                tween(op).to(this.batchFadeTime, { opacity: 255 }, { easing: 'quadOut' }).start();
+            }
+        }
+        this._next = end;
+        this.fitSpacing();
     }
 
     /** 一屏最多摆 4 块：按可视宽度现算间隔，让碎片铺满整条池子（不足 4 块就按实际块数铺满）。
@@ -144,26 +172,42 @@ export class PiecePool extends Component {
      *  `updateLayout(true)` 那一下是瞬移，而且 content 尺寸变化引起的 ScrollView 边界重算
      *  也在同一次调用里同步落定（`SIZE_CHANGED` → `_calculateBoundary`），所以先记下旧的世界位置，
      *  排完之后再把碎片放回去、让他们照着 tween 滑过去。用世界位置而不是本地位置：
-     *  这一下 content 自己也会挪（左贴边），本地位移和屏幕上的位移对不上。 */
+     *  这一下 content 自己也会挪（左贴边），本地位移和屏幕上的位移对不上。
+     *
+     *  关掉「自动补位」时走另一条路：**把顶位节点留在原地**。它在 Layout 眼里就是刚被用掉那块，
+     *  子节点一个没少，排不出任何变化 —— 剩下的碎片待在原地不动，用掉的位置空在那儿。
+     *  （不是「把补位时长调成 0」：那样位置还是会重排，只是瞬移。） */
     consume(entry: PieceEntry): void {
         const rest = this._entries.filter((e) => e !== entry);
-        const from = rest.map((e) => e.piece.worldPosition.clone());
+        const from = this.reflow ? rest.map((e) => e.piece.worldPosition.clone()) : [];
 
-        this.dropSpacer(entry);
+        if (this.reflow) this.dropSpacer(entry);
+        else this._gaps.push(entry);
+
         this.factory.recycle(entry.piece);
         const i = this._entries.indexOf(entry);
         if (i >= 0) this._entries.splice(i, 1);
 
         const layout = this.content.getComponent(Layout);
-        if (!layout) return;
-        layout.updateLayout(true);
+        if (layout) {
+            layout.updateLayout(true);
 
-        for (let k = 0; k < rest.length; k++) {
-            const node = rest[k].piece;
-            const to = node.worldPosition.clone();
-            Tween.stopAllByTarget(node);
-            node.setWorldPosition(from[k]);
-            tween(node).to(this.reflowTime, { worldPosition: to }, { easing: 'backOut' }).start();
+            for (let k = 0; k < from.length; k++) {
+                const node = rest[k].piece;
+                const to = node.worldPosition.clone();
+                Tween.stopAllByTarget(node);
+                node.setWorldPosition(from[k]);
+                tween(node).to(this.reflowTime, { worldPosition: to }, { easing: 'backOut' }).start();
+            }
+        }
+
+        // 这一屏用光了：补上下一屏。重抛一次 POOL_BUILT 是因为横屏那栏的宽度是照池子内容量的
+        //（`LandscapeLayout.onPoolBuilt`），换了一批就可能换了最宽的那块。
+        if (this._entries.length === 0 && this._next < this._data.length) {
+            // 这一屏的空位该收了，不然新一屏会排在它们右边、滚出可视区
+            this.clearGaps();
+            this.buildBatch(true);
+            EventBus.emit(GameEvent.POOL_BUILT, this._entries);
         }
     }
 
@@ -197,7 +241,13 @@ export class PiecePool extends Component {
         entry.spacer = null;
     }
 
+    private clearGaps(): void {
+        for (let i = 0; i < this._gaps.length; i++) this.dropSpacer(this._gaps[i]);
+        this._gaps.length = 0;
+    }
+
     private clear(): void {
+        this.clearGaps();
         for (let i = 0; i < this._entries.length; i++) {
             this.dropSpacer(this._entries[i]);
             this.factory.recycle(this._entries[i].piece);

@@ -6,10 +6,10 @@ import { MraidBridge } from './MraidBridge';
 const { ccclass, property } = _decorator;
 
 /**
- * 终局跳转。两条路，都要「等这一格的修复动画演完」（`PIECE_SHOWN`）才动手：
+ * 终局跳转。两条路，时机不同：
  *
- * - 修满 `winCount` 个 → 不弹任何界面，直接跳商店；
- * - 修错（`REPAIR_FAILED`）→ 先把 `Fail` 整棵淡入，再跳。
+ * - 修满 `winCount` 个 → **吸附成功那一刻就跳**（`PIECE_REPAIRED`，不等这一格的揭晓动画），不弹任何界面；
+ * - 修错（`REPAIR_FAILED`）→ 等这一格露面（`PIECE_SHOWN`）先把 `Fail` 整棵淡入，再跳。
  *
  * 跳完抛 `GAME_OVER`，玩法各模块收到就把输入收掉（拖拽 / 滚动 / 引导 / 常驻按钮），
  * 然后挂一条全局触摸监听 —— 玩家从商店回来之后点屏幕任意处再跳一次。
@@ -30,9 +30,8 @@ export class EndgameCta extends Component {
     @property({ displayName: '失败界面淡入时长（秒）' })
     failFadeTime = 0.25;
 
-    /** 终局那一格的槽位号，-1 = 还没定。等它露面（`PIECE_SHOWN`）才动手 */
+    /** 修错那一格的槽位号，-1 = 还没定。只有失败路等它露面（`PIECE_SHOWN`）才动手 */
     private _endIndex = -1;
-    private _fail = false;
     private _over = false;
     private _fade: UIOpacity = null;
 
@@ -57,24 +56,29 @@ export class EndgameCta extends Component {
         this.unscheduleAllCallbacks();
     }
 
-    private onRepaired(slotIndex: number, done: number): void {
+    /** 修满 `winCount` 就收摊，不等这一格的揭晓动画 —— 玩家吸附成功那一刻就跳商店。
+     *
+     *  ⚠️ 这一下**推到下一帧**才做（`scheduleOnce(..., 0)`），不能同期抛 `GAME_OVER`：
+     *  `PIECE_REPAIRED` 是在 `PIECE_SNAP_SUCCESS` 派发中途抛出来的，这时候 `DragController`
+     *  还没收到同一条事件、手上那块碎片还没 `consume` 掉。同期冻结的话那块的 `onGameOver`
+     *  会把它 `sendHome` **送回池子**（还带着揭角），池里就凭空多出一块。 */
+    private onRepaired(_slotIndex: number, done: number): void {
         if (this.winCount <= 0 || done < this.winCount || this._endIndex >= 0) return;
-        this._endIndex = slotIndex;
-        this._fail = false;
+        this.scheduleOnce(() => this.finish(0), 0);
     }
 
     /** 修错是独立终局，不等凑满 `winCount`。它比 `PIECE_REPAIRED` 先抛（`PieceSlot.repair()` 里那句在前面），
-     *  所以「第 3 块恰好修错」时失败赢 —— 那时 `_endIndex` 已经占了，上面那条会跳过。 */
+     *  所以「修满那一块恰好修错」时失败赢 —— 那时 `_endIndex` 已经占了，上面那条会跳过。 */
     private onFailed(slotIndex: number): void {
         this._endIndex = slotIndex;
-        this._fail = true;
     }
 
+    /** 只有失败路会走到这儿 —— `_endIndex` 只有 `onFailed` 会写：等终局那一格露面，弹失败界面再跳 */
     private onShown(slotIndex: number): void {
         if (slotIndex !== this._endIndex) return;
         this._endIndex = -1;
-        if (this._fail) this.showFail();
-        this.finish(this._fail ? this.failFadeTime : 0);
+        this.showFail();
+        this.finish(this.failFadeTime);
     }
 
     private showFail(): void {
@@ -89,6 +93,8 @@ export class EndgameCta extends Component {
         tween(this._fade).to(this.failFadeTime, { opacity: 255 }).start();
     }
 
+    /** `GAME_OVER` 当场抛、`mraid.open` 落到下一帧：这一帧的收尾（碎片回收 / 补位 tween / 埋点）
+     *  先落定，而且 `EventBus.emit` 不兜异常 —— 哪个监听方抛一下，同一帧里排在后面的跳转就没了。 */
     private finish(delay: number): void {
         if (this._over) return;
         this._over = true;

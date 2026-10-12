@@ -5,8 +5,10 @@ const { ccclass, property } = _decorator;
 /** 面板不在场时读这里（编辑器编辑模式、面板被误删）：全开，避免少一个开关就玩法残缺 */
 const DEFAULTS = {
     pieceGlow: true,
+    stickerPeel: true,
     trail: true,
     revealOnRepair: true,
+    stickerApply: true,
     circleReveal: true,
     sweepOnRepair: true,
     sweepOnComplete: true,
@@ -35,11 +37,17 @@ export class FeatureFlags extends Component {
     @property({ displayName: '拖动亮边', tooltip: '拿起来的碎片边上一圈白光' })
     pieceGlow = DEFAULTS.pieceGlow;
 
+    @property({ displayName: '揭角', tooltip: '碎片被拿起时一角折起来露出背面，弹回池子时贴回去' })
+    stickerPeel = DEFAULTS.stickerPeel;
+
     @property({ displayName: '拖动拖尾', tooltip: '拖动时洒下的白色光点' })
     trail = DEFAULTS.trail;
 
     @property({ displayName: '单块修复揭晓', tooltip: '修好时先播一段序列帧，再把修复图放大出来' })
     revealOnRepair = DEFAULTS.revealOnRepair;
+
+    @property({ displayName: '修复贴纸贴平', tooltip: '修好时那一格的修复图整张出现、一角翘着，再按平贴到缺口上（和碎片揭角是同一对材质，反着演）。只有填了「贴纸贴平揭晓」的槽位走它' })
+    stickerApply = DEFAULTS.stickerApply;
 
     @property({ displayName: '修复圆形扩散', tooltip: '修好时修复图从缺口中心羽化扩出来盖住破损图（和结束背景同一套材质）。只有填了「圆形扩散揭晓」的槽位走它，关掉就整条回退到序列帧那套' })
     circleReveal = DEFAULTS.circleReveal;
@@ -65,8 +73,10 @@ export class FeatureFlags extends Component {
 
     /** 静态 getter 和同名实例字段是两个命名空间，互不干扰 —— 消费方照旧写 `FeatureFlags.audio` */
     static get pieceGlow(): boolean { return (FeatureFlags.panel ?? DEFAULTS).pieceGlow; }
+    static get stickerPeel(): boolean { return (FeatureFlags.panel ?? DEFAULTS).stickerPeel; }
     static get trail(): boolean { return (FeatureFlags.panel ?? DEFAULTS).trail; }
     static get revealOnRepair(): boolean { return (FeatureFlags.panel ?? DEFAULTS).revealOnRepair; }
+    static get stickerApply(): boolean { return (FeatureFlags.panel ?? DEFAULTS).stickerApply; }
     static get circleReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).circleReveal; }
     static get sweepOnRepair(): boolean { return (FeatureFlags.panel ?? DEFAULTS).sweepOnRepair; }
     static get sweepOnComplete(): boolean { return (FeatureFlags.panel ?? DEFAULTS).sweepOnComplete; }

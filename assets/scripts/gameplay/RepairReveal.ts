@@ -2,6 +2,7 @@ import { _decorator, Component, Node, Sprite, SpriteFrame, Tween, UITransform, V
 import { FeatureFlags } from '../config/FeatureFlags';
 import { OverlayMode } from '../data/LevelTypes';
 import { RepairedSlot } from '../level/RepairedSlot';
+import type { PeelConfig } from './StickerPeel';
 
 const { ccclass, property } = _decorator;
 
@@ -16,6 +17,8 @@ export interface RevealHost {
     overlayMode: OverlayMode;
     worldCenter: Vec3;
     width: number;
+    /** `PieceSlot.peel` —— 这一格单独配的揭角参数（`StickerApply` 用：翘起的角要和碎片那边一个姿势）；没配是 null */
+    peel: PeelConfig | null;
 }
 
 interface RevealHandle {

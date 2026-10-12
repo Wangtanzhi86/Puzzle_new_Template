@@ -1,0 +1,109 @@
+// 贴纸揭角 · 正面。挂在碎片自己的 Sprite 上（背面把折过去的那半补齐，两个合起来正好是完整一块）。
+//
+// 折线是「法线 + 线上一点」，都在世界坐标里。法线指向**要被掀掉**的那一侧：
+// 这一侧的像素直接不画，露出底下的池子背景 —— 就是「揭开」露出来的那条缝。
+//
+// 世界坐标从哪来：Sprite 的 a_position 进顶点着色器时已经乘过 node.worldMatrix
+//（引擎在 simple.updateWorldVerts 里预先乘好，2d/assembler/sprite/simple.ts:68），
+// 所以片元里直接拿它算点积。和 bg-reveal / repair-sweep 同一套路数，顺带绕开动态图集那条坑。
+//
+// 切边是硬切、不做羽化：羽化会让折线附近半透明，从缝里透出背景，反而破了「一张纸折起来」的感觉。
+// 缝那一道的锯齿由背面那圈高光盖住（见 sticker-peel-back.effect）。
+//
+// peelLine / peelParam / peelTint 都由 CPU 每帧算好塞进来。
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: peel-front-vs:vert
+      frag: peel-front-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        peelLine: { value: [0.0, 0.0, 0.0, 0.0] }
+        peelParam: { value: [40.0, 0.45, 0.0, 0.0] }
+        peelTint: { value: [0.6, 0.6, 0.6, 1.0], editor: { type: color } }
+}%
+
+CCProgram peel-front-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+  out vec2 world;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+    world = a_position.xy;
+
+    return pos;
+  }
+}%
+
+CCProgram peel-front-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+
+  in vec4 color;
+  in vec2 world;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  #endif
+
+  uniform PeelData {
+    vec4 peelLine;   // xy 折线法线（单位向量，指向「要被掀掉」的那一侧）/ zw 折线上一点（世界坐标）
+    vec4 peelParam;  // x 折线高光带宽度（世界 px，背面那个 shader 用）/ y 高光强度 / zw 备用
+    vec4 peelTint;   // rgb 背面底色
+  };
+
+  vec4 frag () {
+    #if USE_TEXTURE
+      vec4 o = CCSampleWithAlphaSeparated(cc_spriteTexture, uv0);
+      float s = dot(world - peelLine.zw, peelLine.xy);
+      if (s > 0.0) discard;
+      return vec4(o.rgb * color.rgb, o.a * color.a);
+    #else
+      return vec4(0.0);
+    #endif
+  }
+}%

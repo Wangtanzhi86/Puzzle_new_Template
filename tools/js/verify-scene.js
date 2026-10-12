@@ -11,17 +11,19 @@ const wanted = {
     GameCta: ['bridge'],
     GameEntry: ['levelFactory'],
     MraidBridge: [],
+    PlayableAnalytics: [],
     AudioManager: [],
     SnapSystem: [],
     RepairSystem: [],
     PieceSlot: ['brokenView'],
     RepairedSlot: [],
-    PieceFactory: ['glowEffect', 'glowParams'],
+    PieceFactory: ['glowEffect', 'glowParams', 'peelFrontEffect', 'peelBackEffect'],
     FeatureFlags: [],
     TrailEmitter: [],
     RepairSweep: ['sweepEffect'],
     RepairReveal: [],
     CircleReveal: ['revealEffect'],
+    StickerApply: ['frontEffect', 'backEffect'],
     SceneBgSwap: ['revealEffect', 'revealView'],
     IdleMotion: [],
     FlushAction: ['water'],
@@ -74,6 +76,15 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
         out.missing.push('PieceSlot@' + n.name + ' 配了「达标后的修复图」却没配「前置槽位」，失败分支永远走不到');
     }
     for (const c of n.children) checkAlt(c);
+})(canvas);
+// 两种「整格接管」的揭晓只能填一个：贴纸贴平 / 圆形扩散都是往同一张修复图的 Sprite 上挂材质，
+// 都填了的话只有排在前面那个（贴纸）生效，另一个是配了不演的死配置
+(function checkReveal(n) {
+    const slot = n.getComponent('PieceSlot');
+    if (slot && slot.stickerApply && slot.circleReveal) {
+        out.missing.push('PieceSlot@' + n.name + ' 贴纸贴平 和 圆形扩散 都填了，只有贴纸会演');
+    }
+    for (const c of n.children) checkReveal(c);
 })(canvas);
 // 引导副本的半透明与淡入淡出全靠 UIOpacity，缺了组件运行期收不到（`hide()` 里取到 null 直接跳过）
 (function checkGuide(n) {
@@ -258,5 +269,30 @@ function checkButton(path, name) {
             out.missing.push(pair[0] + ' 贴着画布边，长屏上内容会偏下或被拉宽（见 CLAUDE.md §7.1）');
         }
     });
+})();
+// 揭角（§14）：逐格覆盖是「全有或全无」，勾上就整份换成 `peelParams` 自己的值 ——
+// 没有那份（老实例还没刷出字段）就是取到 undefined 直接抛。
+// 另外全局那份改了之后没重跑 `mount-sticker-apply.js` 的话，贴纸贴平那 6 个抄写值还是旧的，
+// 「手上翘着的角」和「缺口上翘着的角」对不上（覆盖过的槽位不受影响，它们现读自己的那份）。
+(function checkPeel() {
+    const num = (a, b) => Math.abs(a - b) > 1e-6;
+    (function walk(n) {
+        const slot = n.getComponent('PieceSlot');
+        if (slot && slot.peelOverride && !slot.peelParams) {
+            out.missing.push('PieceSlot@' + n.name + ' 勾了「本格单独配揭角」却没有那份参数');
+        }
+        for (const c of n.children) walk(c);
+    })(canvas);
+
+    const factory = canvas.getChildByPath('PiecePoolLayer/ScrollView').getComponent('PieceFactory');
+    const apply = canvas.getChildByName('EffectLayer').getComponent('StickerApply');
+    if (!factory || !factory.peelParams || !apply || !apply.frontEffect) return;
+    const p = factory.peelParams;
+    const drift =
+        num(p.corner.x, apply.corner.x) || num(p.corner.y, apply.corner.y) ||
+        num(p.liftRatio, apply.openRatio) || num(p.stickTime, apply.applyTime) ||
+        p.backColor.r !== apply.backColor.r || p.backColor.g !== apply.backColor.g || p.backColor.b !== apply.backColor.b ||
+        num(p.creaseWidth, apply.creaseWidth) || num(p.creaseGlow, apply.creaseGlow);
+    if (drift) out.missing.push('StickerApply 的抄写值和全局揭角参数不一致，重跑一次 mount-sticker-apply.js');
 })();
 return out;
