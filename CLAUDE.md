@@ -135,8 +135,10 @@ assets/scripts/
 │   │                        它调的是打包时注入的 `window.__ccCta`，见 §8.6 —— 游戏代码不分平台）
 │   ├── CtaController.ts     结束界面：背景淡入 + logo / 按钮下落弹跳，以及 mraid.open() 跳转
 │   ├── EndgameCta.ts        终局跳转：修满 3 个 / 修错 → 跳商店，之后点哪都跳（见 §14）
-│   └── GameCta.ts           游戏中常驻的下载按钮：竖屏贴下沿（Widget）/ 横屏由 LandscapeLayout
-│                            挪到左边空位中点 + 呼吸，见 §14
+│   ├── GameCta.ts           游戏中常驻的下载按钮：竖屏贴下沿（Widget）/ 横屏由 LandscapeLayout
+│   │                        挪到左边空位中点 + 呼吸，见 §14
+│   └── PlayableAnalytics.ts AppLovin 试玩埋点：挂在 Canvas 上、只听 EventBus，把既有事件映射成
+│                            官方预定义事件上报（容器没注入全局就整体静默跳过），见 ANALYTICS.md
 ├── audio/
 │   └── AudioManager.ts      音频总控：配置列表（激活事件 / 音效 / 音量 / 结束事件），见 §14
 └── bootstrap/

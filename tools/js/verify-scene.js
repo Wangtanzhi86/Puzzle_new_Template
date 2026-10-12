@@ -18,6 +18,7 @@ const wanted = {
     RepairedSlot: [],
     PieceFactory: ['glowEffect', 'glowParams'],
     FeatureFlags: [],
+    PlayableAnalytics: [],
     TrailEmitter: [],
     RepairSweep: ['sweepEffect'],
     RepairReveal: [],
