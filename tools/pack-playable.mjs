@@ -9,6 +9,9 @@
  * 三份共用同一份构建产物、同一套玩法代码，差别只有 <head> 里注入的那段 CTA 适配器
  * 和 Google 那份多出来的 ad.orientation / exitapi.js。见 tools/lib/channels.mjs。
  *
+ * 产物的页签名与 favicon 在 tools/lib/branding.mjs（游戏名 + 内联的 logo）。
+ * 那两样在构建产物页、编辑器预览页各还有一份手抄的副本，换牌子要一起换。
+ *
  * 用法：
  *   node tools/pack-playable.mjs                  # 三份都出
  *   node tools/pack-playable.mjs --channel google # 只出某一份
@@ -31,6 +34,7 @@ import { CHANNELS, ctaHeadScript } from './lib/channels.mjs';
 import { ALPHABET, buildContainer, checkPayload, encodeBase64, encodeBase85 } from './lib/payload.mjs';
 import { assertComplete, readBuild, toWebp } from './lib/assets.mjs';
 import { makeZip } from './lib/zip.mjs';
+import { FAVICON_DATA_URI, GAME_TITLE } from './lib/branding.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -73,9 +77,12 @@ function parseArgs(argv) {
 const jsSafe = (src) => src.replace(/<\/(script)/gi, '<\\/$1');
 
 /** 搬构建产物 index.html 的 <body>（画布那些 DOM 结构引擎要认），
- *  但摘掉外链 css/script 和内联启动脚本，换成我们自己的 */
+ *  但摘掉外链 css/script 和内联启动脚本，换成我们自己的。
+ *  ⚠️ 先整段摘掉 HTML 注释再找标签：模板 <head> 里那条说明就写着 `<body>` 三个字，
+ *  直接 match 会从注释里那个开始匹配，真正的 DOM 骨架（#GameCanvas）被切掉 ——
+ *  表现是产物一打开就 `Cannot read properties of null (reading 'parentElement')`。 */
 function extractBody(html) {
-  const m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const m = html.replace(/<!--[\s\S]*?-->/g, '').match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   let body = m ? m[1] : '';
   body = body.replace(/<script[^>]*\bsrc=[^>]*>\s*<\/script>/gi, '');
   body = body.replace(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/gi, '');
@@ -130,7 +137,8 @@ function buildHtml(files, options, channel, pre) {
 ${baseFix}
 ${ctaHeadScript(channel)}
 ${channel.extraHead}
-<title>Playable</title>
+<title>${GAME_TITLE}</title>
+<link rel="icon" href="${FAVICON_DATA_URI}">
 <meta name="viewport" content="width=device-width,user-scalable=no,initial-scale=1,minimum-scale=1,maximum-scale=1,minimal-ui=true">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">

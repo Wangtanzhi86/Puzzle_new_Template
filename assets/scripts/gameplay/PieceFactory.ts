@@ -12,6 +12,8 @@ const { ccclass, property } = _decorator;
  */
 export interface PieceSource {
     pieceFrame: SpriteFrame;
+    /** `PieceSlot.pieceAngle` —— 这一格那张图在编辑器里摆的角度（度）。碎片节点是复用的，每次建都重设 */
+    pieceAngle: number;
     /** `PieceSlot.peel` —— 这一格单独配的揭角参数；没配是 null（那就用工厂上那份全局的） */
     peel: PeelConfig | null;
 }
@@ -77,6 +79,7 @@ export class PieceFactory extends Component {
 
         node.setParent(parent);
         node.setScale(1, 1, 1);
+        node.setRotationFromEuler(0, 0, src.pieceAngle);
         node.active = true;
         return node;
     }

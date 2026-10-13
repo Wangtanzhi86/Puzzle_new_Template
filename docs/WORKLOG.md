@@ -72,6 +72,27 @@
 - 贴纸贴平的收尾脉冲：缩小淡出 → 放大淡入（2026-10-12）
 - ⏳ 交审前必须确认（两条，都是明确要求的副作用）
 - 待你确认
+- 火焰跳动 + Slot_02 灭火 + 6 格揭晓整批改圆形扩散（2026-10-13）
+- 「火」为什么新写 `FireFlicker` 而不是复用 `IdleMotion`（2026-10-13）
+- Slot_02 灭火：换图对齐按两张 `rect` / `offset` 现算（2026-10-13）
+- 「改了开关还是走贴平」的根因：不是开关，是 6 格都指着 `stickerApply`（2026-10-13）
+- 换节点：`swapShow` 单独填就生效，`swapHide` 变可选（2026-10-13）
+- 碎片跟着槽位转 + `奶奶微笑` 没被激活（2026-10-13，同日第二轮）
+- 一格在演修复动画时锁住碎片池 —— 不许再拖别的碎片（2026-10-13）
+- 碎片池那块碎片现在带槽位图的角度（`pieceAngle`，2026-10-13）
+- `奶奶微笑` 没被激活的根因：揭晓的回调绕过了换节点（`covered` → `revealed`，2026-10-13）
+- Slot_04 锤子敲击：整棵「修复效果」演一遍（2026-10-13，第三轮；同日按反馈加了大烟雾变形、把小烟雾改成循环）
+- 修车流程的顺序：`REPAIR_FAILED` 的触发条件从「配了替换图」放宽到「配了前置槽位」（2026-10-13）
+- 修车四格组揭晓：`GroupReveal` 为什么数 `PIECE_SHOWN` 而不是听 `LEVEL_COMPLETE`（2026-10-13）
+- ⚠️ `EndgameCta.winCount`：文档写 4、场景里是 0（2026-10-13 实测，已改文档）
+- Slot_02 灭火改成「落位 → 摇晃 → 才换图喷」：换图从第一段挪到了第三段（2026-10-13，第三轮按反馈改）
+- 音频接全：五条配置 + 两个为音效加的事件（2026-10-13）
+- 失败动画（视频）：`<video>` 是盖在画布上的 DOM，跳过只能听 `CLICKED`（2026-10-13）
+- 5s 的失败动画为什么不做序列帧：体积算不过（2026-10-13）
+- 拦截元素 `src` 的两个洞：`HTMLSourceElement` 漏拦 + blob 视频得带 MIME（2026-10-13）
+- 失败动画的声音：`mute = false` + 被拦时退静音 + `GAME_OVER` 先把游戏那盘音停掉（2026-10-13）
+- 失败动画不铺满整屏了：改成铺满 `GameLayer` 那块 + `clip-path` 裁掉溢出（2026-10-13，按反馈改了两轮）
+- 坑：`save-scene` 返回 `false` 时文件根本没写（scene 上下文改对象不会把场景标脏）（2026-10-13）
 
 ---
 
@@ -1301,6 +1322,689 @@ endPulse() 缩放与颜色还原、ApplyPulse 与材质销毁，跑完才调 onA
 - 素材配对：槽位提示框用的是 `[厨房危机]白色边缘线/柜子_透明底_外轮廓白线_白线.png`（946×1400，宽高比 0.676），拖入的碎片是 `916厨房危机压缩版/[完成]柜子.png`（256×447，比例 0.573）。两者不是一套。真正 1:1 的对应图应该是 `柜子_同款白边投影_透明底.png`（402×692，比例 0.581）。demo 按你指定的两张搭了：槽位矩形取碎片的比例（355×620），碎片永不变形，代价是白线框被压扁约 18%。
 - §13.2 那条仍然是最大的风险：美术总量按 2MB 上下卡，base64 还要再涨 33%。
 
+
+---
+
+## 火焰跳动 + Slot_02 灭火 + 6 格揭晓整批改圆形扩散（2026-10-13）
+
+三件事一起做的：给 `Scene_BG/火` 加跳动、给 `Slot_02`（灭火器）加一段「喷射 → 抬升 → 落回 → 火灭 → 收掉」的收尾动作、
+把 6 格的揭晓从「贴纸贴平」整批换成「圆形扩散」。顺带把 `swapShow` 的配对规则改成「单独填也生效」。
+
+### 火为什么是新写一个 `FireFlicker`，不是复用 `IdleMotion`
+
+`IdleMotion` 是**以编辑器里摆的位置为基准整体走正弦**（`position` + `scale` 一起摆），拿它套在火上，**火苗的底边会跟着上下晃**
+（整张图的中心在动）。要的是「底部钉死、只有上半截在拉长缩短」，所以新写 `gameplay/FireFlicker.ts`：
+
+- 每帧动的是 `UITransform.contentSize`（`w × (1 + stretchX·s)`、`h × (1 + stretchY·s)`），不是 `scale`；
+- 高度变了就把 `position.y` 补 `(h − h₀) / 2` —— 底边 = `position.y − h/2`，钉住底边等价于 `pos.y = base.y + (h − base_h)/2`；
+  宽度是左右对称伸缩，锚点 0.5 的时候中心本来就不动，不用补 x；
+- 基准（`_w` / `_h` / `_base`）在 `onLoad` 读一次，之后只按幅度算，**编辑器里挪节点 / 改尺寸都不用回来改参数**；改完尺寸要重开预览。
+- 波形是 `sin(a) + wobble·sin(2.7a + 1.3)`：`wobble = 0` 就是纯正弦（匀速呼吸），0.3–0.5 叠一层快谐波，像火苗乱窜。
+  当前 `stretchX 0.08 / stretchY 0.15 / period 0.6 / wobble 0.35`。
+
+⚠️ 节点当前是 71.542 × 98.86（很小），纵向 ±15% = 上下各约 7.4px；觉得「看不出来」先加幅度再加 `period`。
+⚠️ **`火` 是 `Scene_BG` 的常驻装饰节点、不属于任何槽位** —— 它在整局里一直跳。
+
+### Slot_02 灭火（`ExtinguishAction`）：换图对齐是「按两张裁切框现算」
+
+原始需求是「把修复图换成 `01_喷射.png`，两张图尺寸不一样，要保证灭火器主体位置不变」。两张 PNG 都是 **1536×1024 的画布**，
+只是**自动裁切框不同**（待机 `rect 645×949 / offset` 居右一条；喷射 `rect 1504×1002 / offset −16,8`，多出来的是左边那团雾）。
+而 Sprite 开着 `trim = true` 时是「**裁切框铺满节点框**」—— 直接换帧，内容会被按比例缩进去、位置也跑，瓶身跳一下。
+
+对齐量**全部现算**，一个常量都不写（见 `ExtinguishAction.play`）：
+
+```
+kx = 喷射框宽 / 待机框宽      ky = 喷射框高 / 待机框高
+dx = (喷射 offset.x − 待机 offset.x) · w / 待机框宽 + (0.5 − anchorX) · w · (1 − kx)
+dy = (喷射 offset.y − 待机 offset.y) · h / 待机框高 + (0.5 − anchorY) · h · (1 − ky)
+```
+
+`w` / `h` 是节点自己的 `contentSize`（CUSTOM，413.68 × 563.49），节点 `scale = 0.212`，所以位移还要再乘一次父空间缩放。
+实测：`kx = 1504/645 = 2.3318`、`ky = 1002/949 = 1.0558`、`dx·scale = −58.13`、`dy·scale = +0.189`，
+新节点缩放 `(0.4943, 0.2238)`，**换帧前 / 换帧后瓶身的世界包围盒完全相同**。
+
+⚠️ **`sprite.spriteFrame = ...` 会把 CUSTOM 尺寸的节点框改成贴图尺寸**（同 `PieceGlow.apply` 那个坑），所以赋值之后必须 `ut.setContentSize(w, h)` 把框钉回去
+—— 那句**排在算 `kx/ky` 之前**，`w` / `h` 必须先存下来。
+
+时序（`play()`，**当前版**）四段串行：① 抬到原位上方 `rise = 60` → 落回原位（`dropTime 0.9`，`sineInOut`）——
+这一趟叫「到位」，**还是待机那张图，火也照旧烧着**；② 到位后上下摇晃（`shakeCount 3` × 单程 `shakeTime 0.12`，
+一个来回算两趟，`shakeDepth 20` px，`sineInOut`）；③ **摇完才**换帧 + 缩放 + 对齐到瓶身不动；④ 火焰渐隐
+（`fireDelay 0.2` 后才开始，`fireFadeTime 0.45`，走到 0 就 `active = false`）→ 淡完轮灭火器自己
+（`mistFadeTime 0.3`）→ `active = false` → 才回调 `spotDone`。
+
+> ⚠️ **按反馈改（同日，第三轮）**：需求是「灭火器到位后先上下摇晃，然后再替换图片播放灭火动画」。
+> 原版是**换帧排在第一步**、抬→落与火焰渐隐**同时**跑（`pending` 计数）。
+> 改动只有三处：`play()` 拆成 `play`（到位）/ `shake`（摇晃）/ `spray`（换图 + 灭火）三个方法；
+> 换帧那一整段（含 `kx / ky / dx / dy` 那套对齐）**从开头搬到了摇晃之后**，`at` 也因此不用再单独存
+> —— 摇晃期间节点就在 `base` 上，换帧那一刻现算现写；火焰渐隐不再与下落并行，`pending` 计数随之删掉。
+> ⚠️ 搬位置带来的一个副作用：`w` / `h` 现在是在 `spray()` 里读的 `ut.width/height`，
+> 也就是**摇晃之后**才读（此时内容框还没被换帧改过，值同原版）。
+
+- 所以这一格最终**火和灭火器都没了**，槽位是空的 —— 按需求来的。
+- `handles()` 要 `mistFrame && fire && host.showView` 三个都在；缺一个这一格就不演（照旧直接抛 `PIECE_SHOWN`）。
+- 挂在 `Slot_02` 上，由 `PieceSlot.extinguishAction` 指过来（`shown()` 里排在 `flushAction / sweepAction / sprayAction` 之后）。
+- `火` 与 `Slot_02/Repaired` 都必须有 `UIOpacity`（渐隐要点亮那个组件；缺了就是 `null.opacity` 直接抛，
+  抛在这条路上等于这一格的 `PIECE_SHOWN` 永远不抛）。接线脚本 `mount-extinguish.js` 会补，`verify-scene.js` 会查。
+
+⚠️ **`fire` 是全局节点**：Slot_02 修好就把 `Scene_BG/火` 淡掉隐藏了。这是需求里说的「火组件渐隐」，
+但要意识到**这一格演完火就再也不亮了**（一局只修一次，没有重开，所以实际不会有「先灭后亮」的问题）。
+⚠️ 两个「对齐量」都是现算的，**换美术不用改代码**；但要是美术给的新图**画布大小不一样**（不是 1536×1024），
+这条公式的假设就破了（它假设两张图共享同一套画布坐标），得回头重新量一次。
+
+### 6 格揭晓整批改圆形扩散 —— 以及「改了开关但还是走贴平」的根因
+
+用户问的原话是「我改了功能开关，但是修复效果还是走的贴平效果，不是我设置的圆形扩散和修复揭晓」。根因**不在开关**：
+
+- `FeatureFlags.circleReveal` **当时就已经是 `true`**（现读场景核实过），开关没问题；
+- 真正的原因在**接线**：`PieceSlot.repair()` 的揭晓分支是**互斥 + 短路**的，
+  顺序是 `stickerApply → circleReveal → revealAnim → showRepaired()`，而**6 格的 `stickerApply` 全指着 `EffectLayer`、
+  `circleReveal` 全是 `null`** —— 第一分支就命中并 `return` 了，开关开没开都轮不到圆形扩散。
+  （`revealAnim` 也全配着，同样永远走不到。）
+
+处理：**清空 6 格的 `stickerApply`、把 6 格的 `circleReveal` 全指到 `EffectLayer` 那一个实例**（`mount-circle-reveal.js` 改成 6 格）。
+`StickerApply` 组件与 `mount-sticker-apply.js` **原样留着**（只改接线，没删组件）—— 别的项目可能还要用，脚本一跑就能换回去。
+换回去的代价：`mount-sticker-apply.js` 会把 6 格的 `circleReveal` 清掉、`stickerApply` 指回去（两边本来就只能填一个）。
+
+- `FeatureFlags.stickerApply` **没关**（现在是「开着但没人指它」的死配置）。`verify-scene.js` 里那条
+  「StickerApply 抄写值和全局揭角参数不一致」现在**只在真有槽位指它时才比对** —— 没人用时两边姿势对不对得上无所谓，
+  免得天天报一条不会治的红。
+- `mount-circle-reveal.js` 现在**自带清空 `stickerApply`** —— 再跑一次它不会把贴平带回来。
+
+### 换节点：`swapShow` 单独填就生效了（`swapHide` 变可选）
+
+起因是 `verify-scene.js` 报「`Slot_06` 换掉的隐藏 / 显示节点没配齐」—— 现读发现 `Slot_06.swapShow = Scene_BG/奶奶微笑`、`swapHide` 是空的。
+两个后果：① `onLoad` 里 `if (this.swapShow) this.swapShow.active = false` 会**把奶奶微笑直接藏起来**（编辑模式不跑 `onLoad`，所以面板里看得见、预览里看不见）；
+② `repair()` 里 `const swap = !!(this.swapHide && this.swapShow)` 是死的，整条换节点不演。
+
+**按你的要求改的是逻辑，不是配置**：
+
+- `onLoad`：改成 `if (this.swapHide && this.swapShow)` —— **没配隐藏节点就不藏**，显示节点开局就可见；
+- `repair()`：`const swap = !!this.swapShow` —— 只填显示节点也算配了；
+- `swapAfterSweep()`：`swapShow.active = true` 照旧，**没配隐藏节点就在这一句之后直接 `return`** —— 不藏任何东西、**修复图也不收**
+  （收了这一格就是空的）；配了隐藏节点才走原来那套交叉淡入淡出 + `showView.hide()`。
+- 归纳：**两个口都填 = 原来的「换节点」（开局藏显示节点、修好那一刻才淡出来）；只填显示节点 = 「亮出它」，什么都不藏。**
+- `verify-scene.js` 的 `checkSwap` 跟着改成「**只填 `swapHide` 才是配错**」（没有要放出来的东西）；两个都填时那两条（UIOpacity、兄弟序）不变。
+
+⚠️ **换节点跟「整格接管」的两个揭晓当时接不上**（当晚就补掉了，见下一节「`奶奶微笑` 没被激活」）：
+`stickerApply` / `circleReveal` 命中就在 `repair()` 里 `return` 了，
+`swapAfterSweep` 只会被 `swapAndShown`（序列帧那条）和「没配揭晓」那条调到。所以**一个槽位同时配了 `swapShow` 和 `circleReveal` 时，
+换节点那条路一次都不会走**（Slot_06 当时正是这个状态：只填显示节点，效果就是「奶奶微笑一直不亮」）。
+
+### 接线与校验（这次动了哪些）
+
+| 文件 | 动作 |
+|---|---|
+| `assets/scripts/gameplay/FireFlicker.ts` | **新增**。底部钉死的拉伸抖动 |
+| `assets/scripts/level/ExtinguishAction.ts` | **新增**。Slot_02 的灭火收尾动作 |
+| `assets/scripts/level/PieceSlot.ts` | 加 `extinguishAction` 口 + `shown()` 里加一个分支；`swapShow` / `swapHide` 的配对规则与 tooltip 见上 |
+| `tools/js/mount-fire-flicker.js` | **新增**。`火` 挂 `FireFlicker` 并写幅度 |
+| `tools/js/mount-extinguish.js` | **新增**。Slot_02 接 `ExtinguishAction`（喷射图 uuid 走 args，不写死）+ 补 `UIOpacity` + 回填 `extinguishAction` |
+| `tools/js/mount-circle-reveal.js` | 改成 **6 格**，并**顺手清空 `stickerApply`** |
+| `tools/js/verify-scene.js` | `wanted` 加 `ExtinguishAction: ['mistFrame', 'fire']`；`checkSpot` 查`火`的 `UIOpacity` 并把 `ext` 并进「有收尾动作」；`checkSwap` 改判据；`checkPeel` 只在有人指 StickerApply 时才比对 |
+
+`verify-scene.js` 现在只剩三条，都是**已知的**（前两条是「三处空壳」里记过的、第三条是误报）：
+`ProgressController.label` 为空、`BackgroundSwap.landscapeFrame` 为空、`Bg_Sprite` 的九宫格 inset 是 `0,0,0,0`（底图是 4×4 纯白，见 §7.1 那条）。
+
+⚠️ `refresh.js` 那两次又都返回 `ok: false`，但类**确实重载了** —— 判据是去 `temp/programming/packer-driver/targets/preview/chunks/`
+里 `grep` 编译产物，三处新逻辑（`if (this.swapHide && this.swapShow)`、`if (!this.swapHide) return`、`var swap = !!this.swapShow`）都在。
+
+**还没验的部分**
+
+- ⚠️ **观感全都要开 Game View 眼过一遍**：① 火跳的幅度（`±8% / ±15%`）够不够、会不会太抽搐；
+  ② 灭火器抬起 60px 在高跟鞋那一格里是不是合适（不够/太多就调 `rise`）；③ 火焰渐隐和下落**重叠起来**的节奏
+  （`dropTime 0.9` vs `fireDelay 0.2 + fireFadeTime 0.45`，火在时间轴的 0.65s 处就没了，下落还剩 0.25s）；
+  ④ 圆形扩散落在**六张尺寸差很大的贴图**上（`Slot_06` 缺口只有 55×44 量级）边羽化好不好看。
+- ⚠️ **灭火器那张 `01_喷射.png` 的「雾」在节点框里会被切**：对齐算的是**瓶身**，雾是往左伸的，节点框钉的是待机那张的框，
+  所以雾出框的部分**看不见**（`EffectLayer` 不被裁，但 `GameLayer` 的 RECT Mask 会裁拼图区以外）。
+  要露全雾得把节点框放大（`Broken` / `Repaired` 的 CUSTOM 尺寸），那会连带改进缺口框与吸附半径 —— 得一起量。
+- ⚠️ **换节点新规则没在预览里走一遍**：`Slot_06` 用 `revealed` 那条路（见下一节）应当在**圆形扩满那一刻**亮出奶奶微笑；
+  再手动把 `Slot_06.swapHide` 填上 `Scene_BG/老太太` 试一次交叉淡入淡出（那是「两个口都填」那条路，编辑模式不 tick，只能在预览里看）。
+- ⚠️ **`Slot_06` 的 `swapShow` 是个「没有配对」的配置** —— 效果 = 奶奶微笑亮出来、修复图也留着。若那格修好那张图正好压在她身上，
+  得把 `swapHide` 也填上（这一格的实物就不出场了）。见下一节的 caveat。
+
+
+---
+
+## 碎片跟着槽位转 + `奶奶微笑` 没被激活（2026-10-13，同日第二轮）
+
+两处都是「配了但没生效」，根因都在代码的接缝上，都不需要动场景。
+
+### 碎片池那块碎片现在带槽位图的角度
+
+`PieceFactory.create` 从头到尾**没碰过 `rotation`**：节点从池里取出来、`setScale(1, 1, 1)`，角度是上一次用剩的（首建时是 0）。
+槽位那张图**斜着摆**的时候（`Slot_04`：`Broken` / `Repaired` 的 Rotation Z 都是 41.333°，其余 5 格是 0），
+池里那块正着摆，吸附那一刻突然转 41° 会跳一下。
+
+- `PieceSlot.pieceAngle` = `repairedView.node.eulerAngles.z` —— 跟「修复后」那张图走，和 `carryHeight` 同一个依据
+  （池里那块本来就是修复后的图）。
+  ⚠️ `Node.eulerAngles` **是本地坐标系下的**（引擎 typings 现查过：`rotation` / `eulerAngles` / `angle` 三个都写着
+  「本地坐标系」，世界那个叫 `worldRotation`）。这里够用 —— `Slot_XX` 与它的祖先（`BrokenLayer` / `GameLayer` / `Canvas`）全是 0°，
+  本地 Z 就等于世界 Z。
+- `PieceSource` 加 `pieceAngle: number`，`PieceFactory.create` 在 `setScale` 旁边加一句 `setRotationFromEuler(0, 0, src.pieceAngle)`。
+  **每次 `create` 都要重设** —— 节点是池里复用的，不重设的话 Slot_04 那个 41.333° 会粘到下一块上（和 `setScale` 同一个道理）。
+- 旋转**不参与吸附**：缺口框 / 吸附中心 / 半径仍然按图自己那个矩形算（`worldBoxOf` 不折旋转）。
+  锚点居中时世界中心不受旋转影响，半径取图自己的短边也才是对的 —— **别把它「修」成 AABB**。
+- ⚠️ `PiecePool.fitSpacing` 按 `UITransform.width` 排间隔，斜着的碎片视觉上宽出 `w·|cos| + h·|sin|`
+  （Slot_04：76 → 88.5，多 12.5px）。现在一屏 3 块、间隔算出来两百多像素，**碰不到**；
+  真挤到一块了再回来给 `fitSpacing` 折进角度。
+- ⚠️ **空闲引导的副本没跟角度**（`GuideController.play` 只抄了 `spriteFrame` / `contentSize` / `scale` 三样）。
+  现在 `guide` 关着，而且它只演 `_entries[0]` —— 一屏 3 块时只可能是 `Slot_01`（角度 0），所以走不到。
+
+### `奶奶微笑` 没被激活的根因：揭晓的回调绕过了换节点
+
+现象：`Slot_06` 的「换掉：显示节点」明明指着 `Scene_BG/奶奶微笑`，修好了她也不出现。两个原因叠在一起：
+
+1. **她在场景里就是 `active = false`** —— 那是「修好之后才该出现」的那个状态，手动藏的，没问题；
+2. **没有任何代码会把她打开**：`circleReveal.play(this, this.covered)` 的回调 `covered()` 里只有
+   `hideBroken() + shown()`，**没走 `swapAfterSweep`** —— 而 `repair()` 在 `circleReveal` 分支就 `return` 了，
+   那句 `scheduleOnce(this.swapAfterSweep, this.swapDelay)` 根本轮不到。所以 `swapShow.active = true` 一次都没执行过。
+   （上一节末尾那条 caveat 说的就是这个，当时判断成「不修」。）
+
+改法：`covered` 改名成 **`revealed`**（「整格揭晓演完」），里面补一句**带守卫的**换节点：
+
+```ts
+private revealed = (): void => {
+    this.hideBroken();
+    if (this.swapShow) this.swapAfterSweep();
+    this.shown();
+};
+```
+
+- `stickerApply.play(this, this.shown)` 也改成 `this.revealed` —— 两条「整格接管」的揭晓现在**行为一致**
+  （揭晓演完 → 换节点 → 才算露面），不用再记「哪条接得上、哪条接不上」。
+- 守卫必须有：`swapAfterSweep` 第一句就是 `this.swapShow.active = true`，没填的槽位会 `null` 抛。
+- **没动 `repair()` 里那条老路**（`showRepaired()` + `scheduleOnce(swapAfterSweep, swapDelay)`）——
+  那条路上 `revealed` 不会被调到，不会重复执行。
+- 两个 tooltip 跟着改了：`swapShow` 从「整格被揭晓接管、这条路不会走」改成「亮出来那一刻排在揭晓演完之后」；
+  `circleReveal` 补一句「『换掉』那条路照旧，只是排在它铺满之后」。
+
+⚠️ **她亮出来之后能不能看见，还取决于 `Slot_06` 修好那张图压不压得住她**：`奶奶微笑` 是 `Scene_BG` 的**最后一个**子节点
+（排在 `老太太` / `老爷爷` 上面），但整个 `RepairedLayer` 又排在 `Scene_BG` 上面 —— 修复图要是正好盖住她，她就白亮了。
+那种情况要**把「换掉：隐藏节点」也填上**（`swapAfterSweep` 会顺手把这一格的修复图 `hide()` 掉，实物不出场）。
+⚠️ 顺带一提：`Scene_BG/爷爷微笑` 也是 `active = false`，而且**没有任何槽位指它** —— 没有人会打开它。
+
+### 接线与校验（第二轮）
+
+| 文件 | 动作 |
+|---|---|
+| `assets/scripts/level/PieceSlot.ts` | 加 `pieceAngle` getter；`covered` → `revealed`（补守卫住的换节点）；`stickerApply` / `circleReveal` 两个回调都换成 `revealed`；`worldBoxOf` 注释改成「旋转有意不折进缺口框」；两个 tooltip 更新 |
+| `assets/scripts/gameplay/PieceFactory.ts` | `PieceSource` 加 `pieceAngle`；`create` 里加 `setRotationFromEuler(0, 0, src.pieceAngle)` |
+| `CLAUDE.md` | 现状速查加「槽位旋转」一行、换节点那行的说明改成现在真的会亮；待确认 1 的 ⚠️ 重写；§6 的「唯一的例外」扩成「两处例外」 |
+
+**这次没动场景**（两处都是纯代码），所以没有存盘那一步骤。
+`refresh.js` 照旧返回 `ok: false`，判据还是编译产物：`temp/.../preview/chunks/bd/bde824….js` 里有
+`node.setRotationFromEuler(0, 0, src.pieceAngle)`，`…/8a/8af666….js` 里有 `get pieceAngle()`。
+`verify-scene.js` 仍只剩那三条已知项。
+
+**还没验的部分**
+
+- ⚠️ **开预览看一眼 `Slot_04` 那块碎片**（在池里 / 拿在手上）是不是和缺口同样斜着，吸附那一刻不跳。
+- ⚠️ **`Slot_06` 修好时奶奶微笑应该在圆形扩满那一刻亮**；若看不见，按上面的 caveat 量一下修复图和她的位置关系，
+  决定要不要填 `swapHide`。
+
+
+---
+
+## Slot_04 锤子敲击 + 修车流程的顺序与四格组揭晓（2026-10-13，第三轮）
+
+这一轮加两件事：**Slot_04（锤子）修好之后的「敲击」收尾动作**，以及**修车流程的顺序**
+（没灭火就敲锤子 = 失败）+ **1/2/3/4 四格全演完把 `爷爷微笑` / `车修复` 揭晓出来**。
+
+### 敲击：照收尾动作那一套写（`level/HammerAction.ts`）
+
+和 `FlushAction` / `BroomSweep` / `SprayAction` / `ExtinguishAction` **同一个骨架**：
+`@property` 暴露口子 + `handles(host)` + `play(host, onDone)` + `private _live: Tween<any>[]` + `stop()` +
+`onDisable()`。挂在槽位节点上，由 `PieceSlot.hammerAction` 指过来 —— 没配的槽位完全不碰。
+
+- `handles(host)` 里一并要求 `!!host.showView`：这一格没有修复图就没得收，接不住。
+- `onLoad` 里 `fx.active = false` —— **编辑器里「修复效果」照旧可见可调，运行期开场是收起的**
+  （和 `SceneBgSwap.revealView` 同一个手法）。
+- 三个基准值**只在 `onLoad` 读一次**（`smoke` 的缩放、每个 `hammers[i]` 的 `eulerAngles.z`），
+  同 `FireFlicker` 的理由：每帧的 tween 写的就是「基准 + 偏移」，重读会越跑越歪。
+- **三条子动画是同时开跑的**（大烟雾果冻弹 / 小烟雾依次渐显渐隐 / 锤子串行敲），
+  用 `pending = 3` 计数，三条都完了才 `fx.active = false` + `onDone()`。理由：`大烟雾` / `小烟雾` / `锤子`
+  在编辑器里是**摆在不同位置上的一整个构图**，不是叠在一起的三个阶段 —— 读作同一段表现。
+  只有**锤子之间**论先后（你确认的：一个敲完收掉、隔「交接间隔」下一个才出现，同一时刻只露一个）。
+- 锤子那一支是**递归**的：`strike(i, done)` 里把「抬起 → 砸下」串 `strikeCount` 次 → `delay(handoff)` →
+  收掉这个 → `strike(i + 1, done)`。整串挂在同一条 tween 链上，所以 `stop()` 一次就全停。
+- 「果冻」那一下就是 `smokeTime` 走 **`elasticOut`**：从 `smokeFrom`（默认 0.6）冲回 1、冲过头再荡回来。
+- 角度一律**按节点自己在编辑器里的角度**加（`base + liftAngle × v`）—— 两个锤子的实时读数是
+  **-31.24°** 与 **38.33°**，共用一套参数、摆出来不像。（记一笔：向用户确认时我说第二个锤子「正着 0°」，
+  那是错的 —— 当时那份层级输出在 `rotation` 那一行之前就被截断了，接线后现读才发现是 38.33°。
+  实现不受影响，因为两个基准是各读各的。）
+
+接进 `shown()` 的那一句：
+
+```ts
+if (this._met && this.hammerAction && this.hammerAction.handles(this)) {
+    this.hammerAction.play(this, this.spotDone);
+    return;
+}
+```
+
+⚠️ **`this._met` 这一道是这一条独有的**：没达标（没灭火就敲锤子）接下来就是失败界面 + 跳商店，
+把修复图收掉再演一遍「修好了」的画面没有意义。所以失败路上这一格的 `PIECE_SHOWN` 是**立刻**抛的。
+
+### 顺序：`REPAIR_FAILED` 的触发条件放宽了一格
+
+改之前是：
+
+```ts
+if (this.altView && !this._met) EventBus.emit(GameEvent.REPAIR_FAILED, slotIndex);
+```
+
+也就是**必须同时配「达标后的修复图」**（`altView`）才走得到失败路 —— 因为当初「两种状态」是绑在一起设计的
+（不达标就换一张图，换图就是修错的样子）。而 Slot_04 只需要「前置槽位 = Slot_02」这一条，不需要另一张图。改成：
+
+```ts
+this._met = this.meetsRequires();
+if (this.requires.length && !this._met) EventBus.emit(GameEvent.REPAIR_FAILED, slotIndex);
+```
+
+- 没配「前置槽位」⇒ 永远达标、不抛失败（老行为不变）；
+- 配了前置但没配替换图 ⇒ 展示原来那张修复图，**但抛失败事件**；
+- `altView` 退回它本来的语义：只管「没达标时换不换图」，不再是失败路的前置条件。
+- 两个 tooltip 跟着改准了。`verify-scene.js` 的 `checkAlt`（「配了替换图却没配前置」）不受影响。
+
+下游一行没动：`EndgameCta.onFailed` 记 `_endIndex` → 等这一格 `PIECE_SHOWN` → `Fail` 淡入 + `finish(failFadeTime)`
+→ 抛 `GAME_OVER` + 挂全局点击 + `scheduleOnce(jump)`。**这条链第一次真的会被走到**（以前 `winCount = 4`、
+`requires` 全空，两条终局路都不通）。
+
+### 组揭晓：`level/GroupReveal.ts`（挂 `GameLayer/Scene_BG`）
+
+| Inspector 名 | 字段 |
+|---|---|
+| 这一组的槽位 | `slots: PieceSlot[]`（当前 `Slot_01`…`Slot_04`） |
+| 要亮出的节点 | `nodes: Node[]`（当前 `车修复` + `爷爷微笑`） |
+| 扩散材质 / 扩散时长 / 羽化半宽 | `revealEffect` / `revealTime = 0.7` / `feather = 0.35` |
+
+- **为什么数 `PIECE_SHOWN` 而不是听 `LEVEL_COMPLETE`**：`LEVEL_COMPLETE` 在**最后一格吸附成功那一刻**就抛了，
+  而那一格自己可能还有一整段收尾动作（这里就是 1.18 秒的敲击）要演。需求是「动画也播放完毕后」，
+  所以和 `SceneBgSwap` 用**同一个判据**：等这一组每一格都露过面。
+- 槽位号从 `LEVEL_BUILT` 现算（`data.filter(d => slots.indexOf(d.slot) >= 0).map(d => d.index)`）——
+  `LevelFactory` 按 `pieceId` 排过序，不能写死 0..3。和 `SceneBgSwap.onLevelBuilt` 一个写法。
+- **每个节点各自从自己的中心扩散**（你选的）：每个节点一份 `Material`、一份自己的
+  `Vec4(中心 x, 中心 y, 进度, 1 ÷ 半对角线)`，**共用一条 `{ p: 0 → 1 + feather }` 的 tween** 在 `onUpdate` 里逐份写回。
+  圆心 / 跨度一律按 `UITransform` 世界矩形手算（§14：别用 `getBoundingBoxToWorld()`，它会把活着的子节点一并进来）。
+- `!FeatureFlags.circleReveal || !revealEffect` ⇒ 直接把 `nodes` 全亮出来（不做扩散）——
+  该出现照旧出现，只是不演。
+- `onDisable` 里收摊：`customMaterial = null` + `mat.destroy()`。材质**必须显式销毁**（引擎只销毁
+  MaterialInstance，shared material 没人管，见「圆形扩散揭晓」那节）。
+- **它不抛任何事件** —— 终局（`END_SHOW` / 结束界面）仍然只归 `SceneBgSwap`，两家互不干扰。
+
+### ⚠️ `EndgameCta.winCount`：文档写 4，场景里是 0
+
+- HEAD 那次提交（`9560d93`）的 `assets/scene.scene` 里是 `"winCount": 4`；
+  **当前工作区的场景文件里是 0**，MCP 现读也是 0。也就是说这一处是在 10-13 那轮（换美术、尚未提交）
+  的编辑器状态里改的，CLAUDE.md 的现状速查还停在旧值上，本轮已把文档改成 0。
+- 后果（本轮全部按这个前提做）：**没有「修满就跳商店」**，终局走老路 —— 6 格全修完 → `SceneBgSwap` 扩散
+  `完成背景` → `END_SHOW` → 结束界面 → 点按钮跳。进度条会一路走到 6/6。
+- 顺带确认过一处没受影响：`PlayableAnalytics.goal` 本来就写了「`winCount = 0` 才退回 `REPAIR_PROGRESS`
+  给的槽位总数」，所以 25/50/75 与 `CHALLENGE_SOLVED` 照旧会报全。
+- 10-13 换美术之后**整个场景都没提交过**（`git diff` 里 `老太太` / `老爷爷` / `火` / `修复效果` 这些节点
+  是新增、`num-*` 那批是删除），不只是 `winCount` 一处。
+
+### 接线与校验
+
+| 文件 | 动作 |
+|---|---|
+| `assets/scripts/level/HammerAction.ts` | 新增（敲击收尾动作） |
+| `assets/scripts/level/GroupReveal.ts` | 新增（一组槽位全露面 → 一组节点各自扩散） |
+| `assets/scripts/level/PieceSlot.ts` | import + `hammerAction` 口；`REPAIR_FAILED` 触发条件放宽；`requires` / `altView` tooltip 改准；`shown()` 末尾接敲击（带 `_met` 门） |
+| `tools/js/mount-hammer-group.js` | 新增，幂等接线：`Slot_04` 的四个口 + 十二项调参、三个小烟雾补 `UIOpacity`、`Slot_04.requires = [Slot_02]`、`Scene_BG` 挂 `GroupReveal` |
+| `tools/js/verify-scene.js` | `wanted` 加两个类；`checkSpot` 加 HammerAction 那段（`puffs` / `hammers` 空、小烟雾缺 `UIOpacity`）；新增 `checkGroupReveal`（`nodes` 每个都要挂 `Sprite`） |
+| `CLAUDE.md` | 现状速查（终局 / 失败路 / 结束界面 / 新增两行 / 待确认从三条改两条）§1 第 7 条、§3 层级树、§4 清单、§5 事件表、§15、§16、§17 |
+
+两个「按名字取节点」的坑（写在接线脚本头部了）：
+**「修复效果」下有两个同名 `锤子`**，`getChildByName` 只给第一个 —— 一律 `children.filter(n => n.name === '锤子')`
+按子节点序取；小烟雾是 `小烟雾` / `小烟雾-001` / `小烟雾-002`，按前缀过滤。
+
+### 按反馈改（同日）：大烟雾变形加大 + 小烟雾改成循环
+
+- **大烟雾**原来只是「整体缩放 0.6 → 1 走 `elasticOut`」，观感偏弱。加一个 `smokeWobble`（变形幅度，默认 0.35）：
+  同一个 tween 的代理对象上再带一路 `w: 1 → 0` 的 `elasticOut`，每帧按 `横向 ×(1 + 幅度×w)`、`纵向 ×(1 − 幅度×w)`
+  写缩放 —— 弹动冲过头时 `w` 会越过 0，挤压 / 拉伸自己来回翻，衰减到稳态就复原。填 0 = 老行为（只缩放）。
+- **小烟雾**原来只演一轮（渐显 → 渐隐 → `active = false`），而且**参与「演完没有」的计数**（`pending = 3`）。
+  改成循环：`loopPuff(i, first)` 递归 —— 一轮「渐显 → 渐隐 → 隔 `puffGap`」跑完就再来一轮，
+  首轮按 `i × puffStagger` 错开、之后每轮隔 `puffGap`（默认 0.2）。
+  `pending` 因此降成 **2**（大烟雾 + 锤子），整段长度 = 这两支里长的那个（当前是锤子，约 1.18 秒）。
+  结束时 `_alive = false`，每团把**当前这一轮**跑完自然收（**不在 tween 自己的回调里 `stop()` 自己** ——
+  那是往动作管理器正在迭代的列表里摘自己，能避就避）。
+- 顺带两处：小烟雾不再 `active = false`（整棵 fx 一收，它们跟着没，下一轮 `play()` 由 `stop()` 清干净）；
+  `stop()` 现在会把 `_alive` 落下来，所以中断（`onDisable` / 重播）时循环立刻停。
+- 两个新参数由 `mount-hammer-group.js` 一起写进场景（重跑它照旧会复位这十二项）。`verify-scene.js` 不用动。
+
+**还没验的部分**
+
+- ⚠️ **三条路都要在 Game View 里真过一遍**：
+  ① 正路：先修 `Slot_02`（灭火）再修 `Slot_04` → 圆形扩散揭晓 → 修复图收掉 → `修复效果` 整棵跳出
+  （大烟雾边弹边挤压变形、3 团小烟雾一轮轮渐显渐隐、两个锤子**依次**敲）→ 整棵收掉；
+  ② 失败路：先修 `Slot_04`（没灭火）→ 这一格照旧演圆形扩散，**但不演敲击** → `Fail` 淡入 + 跳商店；
+  ③ 组揭晓：1/2/3/4 四格全修完且各自收尾演完 → `爷爷微笑` 和 `车修复` 各自从中心扩散出场（5、6 未修也该触发）。
+- ⚠️ **`修复效果` 的兄弟序偏低**：它在 `Scene_BG` 里排在 `老太太` / `老爷爷` **之后**，而整个
+  `BrokenLayer` / `RepairedLayer` 又排在 `Scene_BG` 上面 —— 烟雾可能被这两位、或被别的槽位修复图盖掉一截。
+  先按现状看一版；真被盖住就把它在 `Scene_BG` 里的兄弟序往后挪（或整棵挪到 `EffectLayer`），**那是场景调整、不用改代码**。
+- ⚠️ **`GroupReveal.nodes` 里每个节点都要挂 `Sprite`**（扩散材质是往 `Sprite.customMaterial` 上挂的，
+  没挂就是取到 null 直接抛）。`verify-scene.js` 那条会拦。
+- ⚠️ **失败路与组揭晓可能叠在一起**：`Slot_04` 没达标那一格**照旧抛一次 `PIECE_SHOWN`**，
+  要是 1/2/3 那时已经修完，`GroupReveal` 会在 `Fail` 淡入的同时把两个节点扩散出来。
+  画面不至于错（都在同一屏上），但要注意这是**有意不拦**的 —— 要拦得给 `GroupReveal` 加一道「输了就不演」的判断。
+- ⚠️ **两个锤子的基准角度是各读各的**（-31.24° / 38.33°），`liftAngle` 两个共用；
+  要各摆各的幅度得再加一个数组参数 —— 先看一版再说。
+- ⚠️ **`smokeWobble` 的 35% 是「明显」那一版的起手值**，挤压过头就往下压（20% 上下就已经看得出来）；
+  小烟雾循环太快 / 太慢同理调 `puffGap`。
+
+
+---
+
+## 音频接全：五条配置 + 两个为音效加的事件（2026-10-13）
+
+需求原话：「灭火音效是在替换灭火器时播放，修理音效是在播放修理动画时播放，其余就正常配置」。
+`assets/recourses/audio/` 里这一批是 `bgm.mp3`(40.2s) / `修复.mp3`(1.07s) / `修理.mp3`(1.70s) /
+`成功.mp3`(1.85s) / `灭火.mp3`(1.07s)（时长是读 mp3 帧头估的，只看个量级）。
+
+**两个「特殊」时刻都没有现成事件可用**，这是这一轮唯一的代码改动：
+
+| 时刻 | 落在哪 | 新事件 | 谁抛 |
+|---|---|---|---|
+| 换成「喷射」那张、喷出来那一刻 | `ExtinguishAction.spray()` 里 `setScale/setPosition` **之后** | `EXTINGUISH_SPRAY` | `ExtinguishAction` |
+| 「修复效果」整棵亮出来那一刻 | `HammerAction.play()` 里 `this.fx.active = true` 之后 | `REPAIR_FX` | `HammerAction` |
+
+- 抛点选在**视觉已经换完**那一句后面，不是方法开头 —— 音画对齐。
+- 两条都**没有载荷**：音频只认事件名，塞 `slotIndex` 进去就是没人用的参数（§10）。
+- 为什么不是在两个动作组件上各挂一个 `AudioClip` 自己播：那样音频就散出了 `AudioManager`，
+  §8.4 的「切后台静音」「跳商店停全部音」都管不到它们。走事件，这两条照样吃 `stopAll` / `mute`。
+  ⚠️ 这**违反了 §5「不新增事件名到业务代码里」的字面规定**，已经在那条后面补了例外条款
+  （只许为「某个时刻没有事件可用」加，且事件描述的是表现本身）。
+
+**配置表**（`tools/js/mount-audio.js` 重写后铺的基线，重跑会复位整张表）：
+
+| 激活事件 | 音效 | 音量 | 渐入 / 渐出 |
+|---|---|---|---|
+| `NONE`（常驻） | bgm.mp3 | 0.6 | 0.3 / 0.3 |
+| `PIECE_SNAP_SUCCESS` | 修复.mp3 | 1 | 0 / 0 |
+| `REPAIR_FX` | 修理.mp3 | 1 | 0 / 0 |
+| `EXTINGUISH_SPRAY` | 灭火.mp3 | 1 | 0 / 0 |
+| `END_DROP` | 成功.mp3 | 1 | 0 / 0 |
+
+- ⚠️ **「成功」绑的是 `END_DROP` 不是 `LEVEL_COMPLETE`**：`LEVEL_COMPLETE` 离 `END_SHOW` 只隔
+  `SceneBgSwap.revealTime = 0.9s`，而 `END_SHOW` 会把全部音 `stopAll()`（`fadeOut = 0` 就是当场
+  `source.stop()`）—— 1.85s 的一声只响得到 0.9 秒。`END_DROP` 是 `AudioManager` 明确放行的例外
+  （`_closed` 拦不到它），整声听得完。嫌它起得太晚（比 `LEVEL_COMPLETE` 晚 0.9 + 0.25 ≈ 1.15s）
+  就把这条改回 `LEVEL_COMPLETE`，代价是那一刀。
+- 上一版配置里第 2 条（`PIECE_SNAP_SUCCESS`）拖的是 `ccaf8210-…`，对应的资源早就删了 ——
+  是条**悬空引用**，`verify-scene.js` 查不出来（它只查 `clip` 是不是 null）。这轮整个表重铺，顺手清掉。
+- **实测**（编辑模式手动 `onEnable()`，跑完 `onDisable()` + `--no-save`）：常驻那条 `clip=bgm / loop=true`；
+  直接调 `ExtinguishAction.spray()` → `EXTINGUISH_SPRAY` 那条 `LIVE 灭火`；调 `HammerAction.play()`
+  → `REPAIR_FX` 那条 `LIVE 修理`；`onDisable()` 后 `_channels` 回到 0。TypeScript 诊断零报错，
+  `verify-scene.js` 那两条音频告警全消（只剩 `ProgressController.label` / `BackgroundSwap.landscapeFrame` /
+  背景图 inset 三条既有项）。
+- ⚠️ **`spray()` 那条是直接调私有方法验的**：编辑模式不 tick `TweenSystem`，而 `spray()` 排在
+  `play()` 的 tween 回调里，跑 `play()` 根本到不了它。**真正的时序（换图那一刻出的声）只能进
+  Game View / 真机听**。同理「渐入渐出听着顺不顺」编辑模式一概验不了（§「音频」那节的老结论）。
+- ⚠️ **`.mp3` 走 `XMLHttpRequest`**：单文件产物那条链靠打包器拦 XHR，这一轮新加的三个 mp3 同样
+  没进过 release 构建，体积门禁下次构建会给数。
+
+---
+
+## 失败动画（视频）：`<video>` 是盖在画布上的 DOM，跳过只能听 `CLICKED`（2026-10-13）
+
+需求：终局失败时先播一段失败动画，**播完再弹失败界面**。美术出了 `assets/recourses/MP4/失败动画.mp4`
+（480×640，465KB），正在重出一版 9:16 的。当前状态是「**先跑通、资源来了直接替换**」——
+接线齐了，只等片源。规范（结论 + 四条约束）在 CLAUDE.md **§18**，这里只记过程与踩坑。
+
+### 5s 的失败动画为什么不做序列帧：体积算不过
+
+轮子本来就在项目里（`RepairReveal` 就是序列帧 + 放大，`TapeReveal` / `FrameLoop` 也写过又删了），
+所以第一反应是「让美术出一套序列帧」。算完否决：5s × 24fps = **120 帧**，按当前美术的单帧尺寸
+无损 WebP 约 60–80KB ⇒ **编码前 8MB 上下**，而 §9 给全部美术的预算只有 2.5MB（引擎还要 1.2MB）。
+**视频是 5s 这个长度上唯一可行的载体** —— 同样 5s 的 mp4 才 465KB，差一个数量级。
+（降帧率到 12fps、砍分辨率也能压进预算，但观感直接塌，不如视频。）
+
+### 为什么「跳过」不能借全局 `input`
+
+引擎 web 侧的 `VideoPlayer` **不是**画在 canvas 上的东西：`video-player-impl-web.ts` 里它
+`document.createElement('video')` + `position: absolute`，然后 **`appendChild` 到 `game.container`**
+（约 274 行）—— 也就是**盖在 `#GameCanvas` 上面的一个真 DOM 元素**，跟 Canvas / UILayer 的层级
+一点关系都没有（`stayOnBottom` 走相机改的是另一回事，那条路没用）。
+
+于是：**只要它在演，整块屏幕的触摸都到不了画布**。引擎的输入监听挂在 `#GameCanvas` 上
+（`pal/input/web/touch-input.js`），而 video 元素在它上面、又没有 `pointer-events: none`。
+⇒ 「点一下跳过」只能听引擎挂在**元素自己**身上的那个 `click`：`_createVideo` 里
+`addEventListener('click', this.onClick)`（288 行）→ impl 转发 → `VideoPlayer` 组件
+`this.node.emit(VideoPlayer.EventType.CLICKED, this)`（`video-player.ts:479`）。
+**所以 `FailVideo.play()` 里听的是 `player.node.on(CLICKED, …)`，不是全局 `input`、也不是 `Button`。**
+
+顺着这条还有个副作用：那几秒里玩家点什么都不会有反应 —— 但**底下的拼图还在跑**，
+他的触摸虽然到不了 canvas，可游戏状态是不冻的，等视频演完那一刻"手指按着"的状态就错位了。
+所以 `EndgameCta.onShown` 里是 **先 `freeze()` 再 `play()`**（`finish()` 里那句原先是跟着跳转一起做的，
+这次拆了出来）。顺序反了就是「视频期间玩家盲点了七八下，回来时池子里的碎片状态不对」。
+
+### 「不演」必须是节点睡着，`stop()` 藏不住
+
+引擎只在 `onEnable` / `onDisable` 里切元素的 `visibility`（311–327 行）。`stop()` 只停播放、
+元素还盖在那儿（还是个黑块），触摸照样穿不过去。所以 `FailVideo` 整棵在场景里就是 `active = false`，
+`play()` 第一句是 `this.node.active = true`，`done()` 里再睡回去。**这一条是「失败界面按钮点不动 /
+点哪都能跳不生效」的根因候选，配错了很难联想。**
+
+### 尺寸与位置只能自己算：引擎没有 `cover`，而且那个「按片源改尺寸」排在事件后面
+
+第一版是**铺满整屏**（`k = max(可视尺寸 ÷ 片源原始像素)`，多出来的那截溢出屏幕外）。
+看过一次真跑之后改成**铺满「播放区域」= `GameLayer` 那块**（2026-10-13，两轮反馈）：
+
+1. 「视频不要覆盖全屏了，改成适应 Canvas/GameLayer 这个区域」⇒ 取小（完整显示、居中），
+   两侧留白；
+2. 「视频能不能平铺啊，两侧会有底部的画面露出来」⇒ 留白那两条缝里露出的是底下的拼图，
+   所以改成**取大（盖住）+ 把溢出裁掉**。
+
+`keepAspectRatio` 在 web 侧只决定 `object-fit` 是 `'none'` 还是 `'fill'`（`video-player-impl-web.ts:398`）——
+**没有 `cover`**。而且开着它（默认）时，引擎会在 `META_LOADED` 那一下**把节点尺寸设成片源的原始像素**
+（`video-player-impl.ts` 的 `onLoadedMetadata` → `syncUITransform`）。
+好在 `syncMatrix()` 那个 CSS `matrix()` 是从**节点世界矩阵**算的，等比缩放节点就是等比放大整个元素
+（包括画面），所以「盖住」这一步靠节点缩放就够了：
+
+```
+const k = Math.max(rw / w, rh / h);                    // 区域 ÷ 片源原始像素，取大 = 盖住
+this.player.node.setWorldPosition(cx, cy, 0);          // 区域中心
+this.player.node.setScale(k, k, 1);
+```
+
+**裁切得另想办法**：`GameLayer` 上那个 RECT `Mask` 是画布侧的渲染裁剪，**裁不到 DOM 元素**
+（先试过「让溢出顶出去、靠 `Mask` 收边」，不成立）。所以往元素自己的 `style.clipPath` 写 `inset()`：
+窗口按 `区域 ÷ 倍率` 换回元素像素 ——元素盒子和片源原始像素等大，两边相除正好消掉。
+`inset` 的像素是**元素本地坐标**（不跟着 CSS transform 缩放），所以直接拿片源像素算就对。
+
+```ts
+const cutX = (w - rw / k) / 2;
+const cutY = (h - rh / k) / 2;
+v.style.clipPath = `inset(${cutY}px ${cutX}px)`;
+```
+
+- 引擎每帧只回写 `transform / width / height / object-fit`（`syncMatrix()` 里那几句），
+  **不会**动 `clip-path`，所以写完就不会被冲掉。
+- 区域的框是**手算**的（`contentSize × worldScale` + `anchorPoint`）。**不能**用
+  `getBoundingBoxToWorld()`：它会把活着的子节点并进来，而 `GameLayer` 底下挂着整棵拼图场景
+  （`Scene_BG` / 六个槽位 / 修复效果…），量出来会大一圈。横屏时 `LandscapeLayout` 把这个节点
+  挪位 + 放大 1.4，所以 `worldScale` 必须现读、`ORIENTATION_CHANGED` 要重算。
+- `play()` 起播前也补算一次：同一个元素**再放一次不会再抛 `META_LOADED`**（`loadedmetadata` 只有一次），
+  元数据是缓存的话就没人来摆它了。
+
+**改尺寸与发事件的先后是这里最容易踩的一脚**（`video-player-impl.ts` 的 `onLoadedMetadata`）：
+
+```
+this.dispatchEvent(META_LOADED)              // ← 我们的 fit() 在这一刻跑
+const video = e.target as HTMLVideoElement;
+if (this._keepAspectRatio && video) this.syncUITransform(videoWidth, videoHeight);  // ← 改尺寸在这之后
+```
+
+**排反了**：在 `META_LOADED` 的回调里读节点 `contentSize`，读到的是场景里那个 720×1280
+（还没被改成 480×640），倍率就是错的 —— 而且**只在运行时（Game View / 产物）才看得出来**，
+编辑模式根本跑不到这条回调。修法是倍率与裁切窗口一律按 `player.nativeVideo.videoWidth / videoHeight`
+算（`nativeVideo` 是 `VideoPlayer` 的公开 getter，`videoWidth` 在 `META_LOADED` 那刻已经有效）。
+
+连带的两个坑：
+
+- **这个节点不能挂 Widget**：`META_LOADED` 那下引擎会写它的尺寸，Widget 会在下一次重排时写回去，
+  两边打架（而且 Widget 是「按屏幕算」，它算出来的不是片源的原始比例）。
+- **只盖住区域 ⇒ 区域外的触摸是活的**。「点一下跳过」靠元素的 `click` 没问题，但区域外那圈
+  会直接落到画布上 —— 于是两件事必须分开：玩法**起播前**冻（`freeze()`），而
+  「点哪都能跳」那条全局监听挪到**失败界面出场那一刻**（`EndgameCta.finish()`）。
+  原来两条都挂在 `freeze()` 里，铺满整屏时没人点得到，改成区域之后一点背景就直接跳商店、
+  失败界面根本来不及出场。
+
+### 声音：视频要出声，游戏那盘音得先停（2026-10-13，接完一轮之后按反馈改）
+
+第一版把 `cc.VideoPlayer.mute` 配成了 `true`，理由是「静音视频在所有浏览器上都能自动播」——
+代价是**视频自己的音轨听不见**（用户第一次真跑就问了这件事）。改成 `mute = false`，并且补上两件配套的事：
+
+1. **`FailVideo.start()` 先按有声放，被拦了退静音**。带声音的自动播放要过浏览器的自动播放策略
+   （按「页面有没有过用户激活」判，不是按哪个游戏事件触发的）。失败路前面**必然**有过触摸，所以正常放得出声；
+   真被拦时 `play()` 的 promise 会 reject，那时再 `player.mute = true` 重放一次 —— 静音自动播永远允许，
+   画面照演只是没声，比「卡在第一帧」强。
+   - ⚠️ **这一步不能走 `player.play()`**：`video-player-impl-web.ts` 的 `canPlay()` 里是
+     `promise.catch((error) => { /* Auto-play was prevented */ })` —— **引擎把 rejection 吞了**，
+     外部只看得到「没在播」，拿不到那个 promise 就没法退。所以直接 `nativeVideo.play()`。
+     副作用很小：播放状态由 DOM 的 `play` / `playing` 事件回填（引擎的 `onPlay` 就在听），
+     我们要的 `COMPLETED` / `CLICKED` 本来也是引擎从元素的 `ended` / `click` 转出来的。
+2. **`GAME_OVER` 现在也停全部音**（`AudioManager` 多挂一个监听，走同一条 `stopAll()`）。
+   起因是第一次真跑时「视频在放、游戏里的 BGM / 火焰 / 女人哭还在响」。`GAME_OVER` 在失败路里是
+   `freeze()` 抛的，**就在起播那一刻**，所以停得正及时；这条**不是**新加事件（§5 允许加事件的例外
+   只管「某个时刻没有事件可用」），只是在**监听侧**多挂一个 —— 发射方一行没改。
+   - 顺带说清楚**分工**：视频的音轨是 `<video>` 元素自己的，**不归 `AudioManager` 管**，
+     `_muted` / `_closed` / `stopAll()` 一条都够不着它；游戏那盘音归 `AudioManager`，视频够不着它。
+     两边唯一的接口就是「起播前先把游戏那盘停掉」这一句。
+
+### 拦截元素 `src` 的两处补丁：`HTMLSourceElement` + blob 的 MIME
+
+`playable-runtime.js` 的「拦截 2」从写下那天起就没被真跑过 —— 音频走后一条链（WebAudio + XHR，
+`.mp3` 是 XHR 拉字节再 `decodeAudioData`），`<img>` 不给 MIME 是有意的（靠魔数嗅探，正好配合
+PNG→无损 WebP 的**字节替换**：给 WebP 标 `image/png` 反而是错的）。**视频是第一个真吃这条拦截的东西**，
+而一读引擎源码发现它有两个洞：
+
+1. **`HTMLSourceElement` 没被拦**。引擎建的是 `<video>` + **子节点 `<source>`**，地址写在 `source.src` 上：
+
+   ```js
+   const source = ccdocument.createElement('source');
+   video.appendChild(source);
+   source.src = url;              // video-player-impl-web.ts 的 createVideoPlayer
+   ```
+
+   而 `HTMLSourceElement` **不继承 `HTMLMediaElement`**（两个接口各有一份自己的 `src`）——
+   原来那句 `[HTMLImageElement, HTMLMediaElement].forEach(...)` 只披到了 `video.src`，**等于没拦**。
+   产物里 `source.src` 会保持相对路径，视频去请求一个不存在的文件 ⇒ 黑屏 / ERROR。
+   修法是把 `window.HTMLSourceElement` 加进那个数组。
+2. **blob 得带 MIME**。补了 `mediaTypeFor()`：按扩展名给 `.mp4` 加 `type: 'video/mp4'`。原因是
+   **Safari 对没有 type 的 blob 视频直接给 `MEDIA_ERR_SRC_NOT_SUPPORTED`**，Chrome 能嗅探 ——
+   **本地测不出来，只会在 iOS 上炸**。
+
+这两条都是**读引擎源码找出来的**，本机（Chrome）跑不出来：①漏拦在 Chrome 上表现为「视频不出现」，
+但因为我们没在真产物里跑过，谁也说不准会不会其实靠别的路兜住；②是真机 Safari 才有的差异。
+**都还没验过**（见下）。
+
+### 实测
+
+- `mount-fail-video.js` 跑通：`Canvas/UILayer/FailVideo` 节点（720×1280 / 锚点 0.5 / **无 Widget**）、
+  `cc.VideoPlayer`（`clip = 失败动画`、`resourceType = LOCAL`、`playOnAwake = false`、`mute = false`、
+  `keepAspectRatio = true`、`stayOnBottom = false`）、`FailVideo`（`player` 已接、`region = GameLayer`、
+  `fallbackTime = 6`）、`EndgameCta.failVideo` 已回填，节点落盘 `active = false`。
+  **读的是 `assets/scene.scene` 文件，不是编辑器内存。**
+  - 节点自己的尺寸 / 位置（720×1280 @ 0,0）只是 `META_LOADED` 之前的占位：真跑起来是
+    `fit()` 摆到 `GameLayer` 的世界中心去的，所以**别拿这个 0,0 去推它盖在哪**。
+- `verify-scene.js` 没有新增失败项（仍旧只剩 `ProgressController.label` / 背景图 inset 两条既有项）。
+- **落盘核对（读 `assets/scene.scene`，不是编辑器内存）**：`FailVideo` 节点（`active = false`，
+  组件 `[UITransform, VideoPlayer, FailVideo]`）；`VideoPlayer` 的 `_clip.__uuid__` =
+  `assets/recourses/MP4/失败动画.mp4.meta` 的 `uuid`（`98ccb624-…`，`importer: video-clip`）；
+  `FailVideo.player → VideoPlayer`、`FailVideo.region → GameLayer`、`fallbackTime = 6`；
+  `EndgameCta.failVideo → FailVideo`。
+- `refresh_assets` 之后用探针核过 `cc.js.getClassByName('FailVideo')` 与 `cc.VideoPlayer` / `cc.VideoClip`
+  都在。⚠️ `tools/js/refresh.js` 返回 `{ok:false}` 是**误报**（它 `return !!a`，而 `refresh-asset`
+  这条消息本来就可能返回 undefined）—— **别拿它的返回值当判据**，用探针读类。
+- **区域尺寸**（2026-10-13 现读）：`GameLayer` = `contentSize 569×840`、锚点 0.5、`_lpos (0, 180.435)`、
+  `scale (1, 1, 2.28)`（z 那一维不影响 UI 布局）⇒ 世界框 **569×840**、比例 **0.677 ≈ 2:3**。
+
+### 一个会白干半天的坑：`save-scene` 返回 `false` 时文件根本没写
+
+改这一版时踩到一次：MCP 的 `scene` 上下文里 `video.region = ...`、`node.setPosition(...)` 都「成功」了，
+探针读回来也对，**但 `assets/scene.scene` 的 mtime 一直不动**、`region` 也不在文件里。
+
+根因：**从 scene 上下文直接改对象不会把编辑器的场景标成「脏」**，而 `save-scene` 对不脏的场景返回
+`false` 且**不落盘**（`exec.mjs` 末尾那句自动存盘于是也只打一行 `⚠️ 场景没存上`，很容易看漏）。
+判断与修法：
+
+- **只看文件，别看安装脚本的返回值**（§10 那条「核对要读文件」正是这个意思）：
+  `node -e "…JSON.parse(fs.readFileSync('assets/scene.scene'))…"` 里真出现新的键才算数。
+  编辑器内存 / 探针读到的都对，**不能当落盘证据**。
+- 让场景变脏：走一次**编辑器消息**改点什么（这次用的是 MCP 的 `set_node_transform`，
+  顺手把测试时挪开的 `FailVideo.position` 归零），再 `save_current_scene`。
+  那时 `save-scene` 返回的是**场景 uuid 字符串**（真值）—— 返回 `false` = 没写，别当成「已经存过了」。
+
+### 现在的片源与「直接替换」
+
+当前挂的是美术第一版 **480×640（4:3）**。铺满是「盖住、裁掉多出来的」，所以**片源比例越接近
+区域比例，裁掉的越少**（区域 = `GameLayer`，569×840 ≈ **0.677，差不多就是 2:3**）：
+
+| 片源 | 比例 | 铺满之后 |
+|---|---|---|
+| 480×640 | 0.75（4:3） | 裁**左右**各 4.8% |
+| 9:16 | 0.5625 | 裁**上下**各 8.5% |
+| **2:3**（如 640×960） | 0.667 | **几乎不裁** |
+
+换片只需把新 `cc.VideoClip` 拖到 `UILayer/FailVideo` 上 `cc.VideoPlayer.clip`，
+或 `node tools/exec.mjs scene tools/js/mount-fail-video.js "{\"clip\":\"<uuid>\"}"`。
+⚠️ 重跑接线脚本会把 `region` / `fallbackTime` 复位；`GameLayer` 尺寸也会随美术 / 关卡变，换完**现读一遍**。
+
+### ⚠️ 还没验的部分
+
+1. **有声自动播放放不放行**：视频不是音频，但自动播放策略一样管它（按「页面有没有过用户激活」判，
+   跟游戏里哪个事件触发的无关）——**「是不是能跳过音轨限制」的答案是「不能」**。失败路前面必然有过触摸，
+   按理能放出声；放不出来时的表现是「**画面在演但没声**」（退成了静音那一条）。**只能真机 / 真容器验。**
+   - 顺带：`fallbackTime` 默认 6，**比片长略长就行**。填太短会在片子没演完时硬切失败界面；
+     填太长则是「片子早就完了、画面还压着失败界面」。
+   - 还有一条**没试过、但真机上很可能救场**的招：在第一次真实触摸时就把元素「解锁」一遍
+     （`v.muted = true; v.play(); v.pause();`），以后就不受那条策略管了。现在没做 —— 先看真机上到底拦不拦。
+2. **`CLICKED` 跳过灵不灵**：容器（AppLovin / Moloco / Google）有可能自己在 video 上再盖一层
+   （很多试玩容器会盖一个「点击下载」的透明层），那 `click` 就到不了我们的元素。
+3. **铺满区域的观感**：换成真片源之后裁掉多少、关键画面在不在裁掉的那一截里（见上表）；
+   以及 **`clip-path` 在容器的 webview 里支不支持**（不支持的表现是「回到第一版那样溢出去」——
+   画面照样在演，只是会盖到进度条 / 碎片池上面，不会不显示）。
+   这一版**只在编辑器 Game View 量过尺寸，没有真机 / 真产物跑过**。
+4. **Safari 的 blob MIME** 那条修复。
+5. **`HTMLSourceElement` 那条拦截补丁**：同样只能在**真产物**里验 —— 单文件 HTML 双击打开，
+   看视频是出画面还是一声 `ERROR`（外加 `#debug` 日志）。编辑器 / Game View 走的是本地文件路径，
+   **压根不经过那五个拦截**，验不到。
+6. **`video` 模块重开之后引擎得重编**：§9 那条「光改 JSON 不够」适用 —— 去「设置 → 功能裁剪」
+   再保存一次逼它重编。**这一版还没进过 release 构建**，`video` 模块带进来的体积、
+   以及那个 mp4 被 base85 撑出来的体积（465KB → 约 580KB），都要等下一次构建的门禁给数。
+
+---
+
+**一格在演修复动画时锁住碎片池 —— 不许再拖别的碎片（2026-10-13）**
+
+需求：上一块碎片的修复动画没演完之前，玩家拖不走别的碎片。
+
+改的是 `DragController`（`assets/scripts/gameplay/DragController.ts`），一行玩法逻辑都没动：
+
+- **闸就加在 `onStart` 的第一句**：`if (this._entry || this._holds > 0) return;` —— 拿起不来就
+  没有后续的 `PIECE_DRAG` / 吸附，`SnapSystem` 那条链自然断在源头上，不用去拦吸附。
+- **`_holds` 直接听 `PieceSlot` 那对现成事件**（`GUIDE_HOLD` 加、`GUIDE_RESUME` 减），**没有新增事件、
+  发射方一句没改**（§5：接表现只在监听侧加）。为什么挑这一对而不是 `PIECE_REPAIRED` / `PIECE_SHOWN`：
+  - 它们框住的窗口**正好**是「这一格从吸附到整段表现演完」—— `GUIDE_HOLD` 是 `repair()` 的**第一句**、
+    `GUIDE_RESUME` 在 `spotDone()` 末尾（圆形扩散 / 序列帧 / 换节点 / 两个收尾动作全在中间）。
+  - 更要紧的是**顺序有保证**：`PIECE_REPAIRED` 是 `RepairSystem` 在 `repair()` **返回之后**才抛的，
+    而 `repair()` 在没有圆形扩散那条老路上会**同步**跑到 `spotDone()`（`PIECE_SHOWN` 当场抛）。
+    拿 `PIECE_REPAIRED` 当「开始锁」就会在最后一块上撞成「先放行、后上锁」⇒ 计数器永远归不了零，
+    池子锁死。`GUIDE_HOLD` 在 `repair()` 最前面抛，不存在这个反向。
+- **`_holds` 是计数器不是布尔**（照抄 `GuideController` 那份的写法）：原来的设计允许两格动画重叠
+  （见上面「动画期间空闲引导的计时器停住」），现在虽然从入口上就重不起来了，但计数器和闸一起看是
+  自洽的 —— 万一以后又从别处放开了并发，这里也不会错。
+- `onLevelBuilt` **没加**归零：`DragController` 本来就没订这条事件，而单关卡流程里它全程 enabled，
+  欠账没有来源。真泄了的现象是「碎片池再也拖不动」，很好认。
+- **观感上的副作用**：动画期间在池子上按一下是「没反应」，不是「弹回去」—— 因为 `onStart` 根本没认领那块碎片
+  （`PIECE_SNAP_FAIL` 不抛，也不会误导引）。`content` 上那几个监听还在，所以这一下依然不会漏给 ScrollView。
+
+⚠️ **还没验的部分**：① Game View 里逐格过一遍 —— 尤其 `Slot_02`（灭火）/ `Slot_04`（敲击）这两格
+整段好几秒，确认这期间拖不动、演完立刻又能拖；② 失败路（`Slot_04` 没达标）那一格同样被锁住，
+到 `GAME_OVER` 之前都不会放开，这条也在 Game View 里看一眼。
 
 ---
 

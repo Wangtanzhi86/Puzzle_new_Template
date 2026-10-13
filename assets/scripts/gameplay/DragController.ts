@@ -12,6 +12,9 @@ const { ccclass, property } = _decorator;
  * ScrollView 的节点处理器会先把触摸吞掉，于是 PointerEventDispatcher 返回 false，
  * 全局 input 的监听器一个都收不到。content 比 ScrollView 深，排序靠前抢得到触摸；
  * 拿起后碎片被挪到 dragRoot，但触摸已被 content 认领，MOVE / END 照常派发。
+ *
+ * **一格在演修复动画时不许再拿起别的碎片**：`PieceSlot` 那一对 `GUIDE_HOLD` / `GUIDE_RESUME`
+ * 正好框住这一格从吸附到整段表现演完（揭晓 + 收尾动作），拿它当闸用 —— 不另加事件。
  */
 @ccclass('DragController')
 export class DragController extends Component {
@@ -21,6 +24,8 @@ export class DragController extends Component {
 
     private _entry: PieceEntry = null;
     private _guided = false;
+    /** 正在演修复动画的格数（一格一个来回）。> 0 时碎片池锁着 —— 上一块的表现没演完，谁都不许再拿 */
+    private _holds = 0;
 
     protected onEnable(): void {
         const content = this.pool.content;
@@ -29,6 +34,8 @@ export class DragController extends Component {
         content.on(NodeEventType.TOUCH_END, this.onEnd, this);
         content.on(NodeEventType.TOUCH_CANCEL, this.onEnd, this);
         EventBus.on(GameEvent.PIECE_SNAP_SUCCESS, this.onSnapSuccess, this);
+        EventBus.on(GameEvent.GUIDE_HOLD, this.onHold, this);
+        EventBus.on(GameEvent.GUIDE_RESUME, this.onResume, this);
         EventBus.on(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
         EventBus.on(GameEvent.GAME_OVER, this.onGameOver, this);
     }
@@ -36,6 +43,8 @@ export class DragController extends Component {
     protected onDisable(): void {
         this.unbindContent();
         EventBus.off(GameEvent.PIECE_SNAP_SUCCESS, this.onSnapSuccess, this);
+        EventBus.off(GameEvent.GUIDE_HOLD, this.onHold, this);
+        EventBus.off(GameEvent.GUIDE_RESUME, this.onResume, this);
         EventBus.off(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
         EventBus.off(GameEvent.GAME_OVER, this.onGameOver, this);
     }
@@ -55,7 +64,7 @@ export class DragController extends Component {
     }
 
     private onStart(e: EventTouch): void {
-        if (this._entry) return;
+        if (this._entry || this._holds > 0) return;
         const at = e.getUILocation();
         const entry = this.pick(at);
         if (!entry) return;
@@ -95,6 +104,16 @@ export class DragController extends Component {
         this.release();
         this.pool.consume(entry);
         this.markGuided();
+    }
+
+    /** 某格开演（吸附当刻，在揭晓之前）：锁住碎片池 */
+    private onHold(): void {
+        this._holds++;
+    }
+
+    /** 这一格整段演完（`PIECE_SHOWN` 同一刻）：放行 */
+    private onResume(): void {
+        if (this._holds > 0) this._holds--;
     }
 
     private onOrientation(): void {

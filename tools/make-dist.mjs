@@ -25,6 +25,7 @@ const TEMPLATE = path.join(HERE, 'dist-template');
 const SHIP = [
   'tools/pack-playable.mjs',
   'tools/lib/assets.mjs',
+  'tools/lib/branding.mjs',
   'tools/lib/payload.mjs',
   'tools/lib/channels.mjs',
   'tools/lib/zip.mjs',

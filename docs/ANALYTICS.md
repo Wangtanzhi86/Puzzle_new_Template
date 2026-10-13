@@ -251,11 +251,15 @@ MCP_PORT=<端口> node tools/exec.mjs scene  tools/js/mount-analytics.js  # 挂�
 本地自测的期望序列（对应 §6）：
 
 ```
+正常通关（一路按顺序修完 6 格）：
 DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
-          → CHALLENGE_PASS_75 → CHALLENGE_SOLVED → CTA_CLICKED
+          → CHALLENGE_PASS_75 → CHALLENGE_SOLVED → ENDCARD_SHOWN → CTA_CLICKED
+
+失败路（先敲锤子、没灭火）：
+DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_FAILED → CTA_CLICKED
 ```
 
-（`ENDCARD_SHOWN` 按 §7.4 不会出现。）
+⚠️ 失败路**不会有 `CHALLENGE_SOLVED`** —— 那条路也抛 `GAME_OVER`，靠组件里的 `_failed` 挡掉（§7.2）。
 
 ## 7.2 事件映射（本项目的落点）
 
@@ -266,9 +270,9 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 | `CHALLENGE_PASS_25` | `REPAIR_PROGRESS` | [RepairSystem.ts:41](../assets/scripts/gameplay/RepairSystem.ts#L41) | 修到第一档，见 §7.3 的基准算法 |
 | `CHALLENGE_PASS_50` | `REPAIR_PROGRESS` | 同上 | 修到中段 |
 | `CHALLENGE_PASS_75` | `REPAIR_PROGRESS` | 同上 | 修到后段。**三档的流失率**就是关卡难度曲线 |
-| `CHALLENGE_SOLVED` | `GAME_OVER` | [EndgameCta.ts:95](../assets/scripts/platform/EndgameCta.ts#L95) | 达成终局条件，跳商店**之前**那一 tick |
-| `CHALLENGE_FAILED` | `REPAIR_FAILED` | [PieceSlot.ts:200](../assets/scripts/level/PieceSlot.ts#L200) | 修错。**当前场景走不到**，见 §7.4 |
-| `ENDCARD_SHOWN` | `CTA_SHOW` | [CtaController.ts:73](../assets/scripts/platform/CtaController.ts#L73) | 结束界面在广告内部亮起来。**当前场景走不到**，见 §7.4 |
+| `CHALLENGE_SOLVED` | `LEVEL_COMPLETE`（全部修完）/ `GAME_OVER`（修满 `winCount` 被跳走） | [RepairSystem.ts:44](../assets/scripts/gameplay/RepairSystem.ts#L44) / [EndgameCta.ts:101](../assets/scripts/platform/EndgameCta.ts#L101) | 通关。**两条路都要接**：`winCount = 0` 时走的是前者，`winCount > 0` 时走的是后者，见 §7.3 |
+| `CHALLENGE_FAILED` | `REPAIR_FAILED` | [PieceSlot.ts:200](../assets/scripts/level/PieceSlot.ts#L200) | 修错（前置槽位没修好就动手）。当前场景**只有 `Slot_04`** 能抛，见 §7.4 |
+| `ENDCARD_SHOWN` | `CTA_SHOW` | [CtaController.ts:73](../assets/scripts/platform/CtaController.ts#L73) | 结束界面在广告内部亮起来。`winCount = 0` 时走得到，见 §7.4 |
 | `CTA_CLICKED` | `CTA_CLICK` | [EndgameCta.ts:109](../assets/scripts/platform/EndgameCta.ts#L109) / [CtaController.ts:122](../assets/scripts/platform/CtaController.ts#L122) / [GameCta.ts:65](../assets/scripts/platform/GameCta.ts#L65) | 玩家点了下载。**自动跳转也算**（见 §7.5） |
 
 每个事件**只报一次**（组件内部一次性标记）；`PASS_25/50/75` 三条各自独立只报一次。
@@ -286,13 +290,13 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 
 这是 §4 第 1 条在本项目的实例。
 
-`CHALLENGE_PASS_25/50/75` 的 `done / 分母` 里那个分母**取 `EndgameCta.winCount`**（现在是 **4**），
+`CHALLENGE_PASS_25/50/75` 的 `done / 分母` 里那个分母**取 `EndgameCta.winCount`**（现在是 **0**），
 不是槽位总数（6）。`winCount = 0`（不按数量跳、退回「全部修完出结束界面」那条老路）时才退回用
 `REPAIR_PROGRESS` 给的槽位总数。
 
-**为什么必须这样**：`winCount < 槽位数` 时玩家修到第 4 格就被自动跳走了，按 6 算的话后两档和
-`CHALLENGE_SOLVED` 永远不会出现 —— 那违反官方「用了 `CHALLENGE_STARTED` 就必须至少用
-`CHALLENGE_SOLVED` / `CHALLENGE_FAILED` 之一」的配对要求，报表上也会显示成「所有人都卡死」。
+**为什么必须这样**：`winCount` 填了正数时玩家修到第 N 格就被自动跳走了，按槽位总数算的话后几档
+永远不会出现 —— 那违反官方「用了 `CHALLENGE_STARTED` 就必须至少用 `CHALLENGE_SOLVED` /
+`CHALLENGE_FAILED` 之一」的配对要求，报表上也会显示成「所有人都卡死」。
 
 `winCount` 是**运行期从场景里读的**（`director.getScene().getComponentInChildren(EndgameCta)`，
 和 `FeatureFlags.panel` 同一套路），读一次缓存。**不在 Inspector 上重复配一份** ——
@@ -300,23 +304,29 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 
 当前配置下的实际触发点：
 
-| `winCount` | 分母 | 25% | 50% | 75% | SOLVED |
+| `winCount` | 分母 | 25% | 50% | 75% | `CHALLENGE_SOLVED` 由谁抛 |
 |---|---|---|---|---|---|
-| **4**（现状） | 4 | 第 1 格 | 第 2 格 | 第 3 格 | 第 4 格 |
-| 0（不按数量跳） | 槽位数 6 | 第 2 格 | 第 3 格 | 第 5 格 | 修满全部 |
+| **0**（现状） | 槽位数 6 | 第 2 格 | 第 3 格 | 第 5 格 | `LEVEL_COMPLETE` —— 修满全部 6 格 |
+| 4（按数量跳） | 4 | 第 1 格 | 第 2 格 | 第 3 格 | `GAME_OVER` —— 第 4 格吸附成功那一下 |
 
 一次跨过好几格也不会漏报：三个阈值是一次算完的（过了哪几档就按序补发哪几档）。
 
-## 7.4 当前场景走不到的两条
+⚠️ **`CHALLENGE_SOLVED` 必须挂两处**（`LEVEL_COMPLETE` + `GAME_OVER`）：两条终局路线互斥，
+挂一处就会在另一种配置下整个漏掉。以前只挂了 `GAME_OVER`，而 `winCount = 0` 时
+`GAME_OVER` 只由失败路抛 —— 结果是**正常通关的玩家一条终局事件都不报**。
 
-- **`CHALLENGE_FAILED`**：只有配了「达标后的修复图（`altView`）」的槽位才会抛 `REPAIR_FAILED`
-  （且它的「前置槽位（`requires`）」没修齐）。当前 6 个槽位这两项**全空**，所以永远不会抛 ——
-  埋点这侧接了，是为了配置一改就自动生效，不用再回来动代码。
-- **`ENDCARD_SHOWN`**：`CTA_SHOW` 由 `CtaController` 抛，而 `CtaController` 只在「全部修完」那条路上
-  被 `END_SHOW` 叫醒。`winCount = 4 < 6`，玩家在第 4 格就被 `EndgameCta` 跳走了，`END_SHOW` 到不了。
+`GAME_OVER` 在失败路上**也会抛**（那是「终局跳转」不是「通关」），所以 `onSolved` 里有一句
+`if (this._solved || this._failed) return` —— 不挡的话一次失败会同时报 `CHALLENGE_FAILED`
+和 `CHALLENGE_SOLVED`。
 
-这两条**不影响合规**：官方要求的是「用了 `CHALLENGE_STARTED` 就必须有 `SOLVED` 或 `FAILED` 之一」，
-`CHALLENGE_SOLVED` 是走得到的。
+## 7.4 当前场景两条路都走得到
+
+- **`CHALLENGE_FAILED`**：`Slot_04`（敲锤子）配了「前置槽位 = `Slot_02`（灭火）」，
+  没灭火就敲锤子 ⇒ `REPAIR_FAILED` ⇒ `Fail` 淡入 + 跳商店。其余 5 格 `requires` / `altView` 都空。
+- **`ENDCARD_SHOWN`**：`CTA_SHOW` 由 `CtaController` 抛，它在「全部修完」那条路上被 `END_SHOW` 叫醒。
+  `winCount = 0` ⇒ 6 格修完就走到结束界面。
+
+两条都走得到意味着**必须**做 §7.3 里那个 `_failed` 挡板 —— 否则一次失败会上报两条互斥的终局事件。
 
 ## 7.5 自动跳转也报 `CTA_CLICKED`
 

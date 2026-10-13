@@ -116,6 +116,13 @@
     return hit;
   }
 
+  // 媒体元素的 blob 必须带 type。图片靠魔数认（正好配合 PNG→无损 WebP 的字节替换）、
+  // `<script>` 那条自己传了 type，只有 `<video>` 是裸的 —— 而 Safari 对无 type 的 blob 视频
+  // 直接给 MEDIA_ERR_SRC_NOT_SUPPORTED，Chrome 能嗅探所以本地测不出来。
+  function mediaTypeFor(url) {
+    return /\.mp4([?#]|$)/i.test(String(url)) ? 'video/mp4' : null;
+  }
+
   function blobUrlFor(url, mime) {
     var key = String(url);
     if (!blobUrls[key]) {
@@ -203,8 +210,11 @@
   }
 
   // ── 拦截 2：img / audio / video 的 src ────────────────────────────────
+  // ⚠️ `HTMLSourceElement` 必须一起拦：引擎给 `<video>` 建的是**子节点 `<source>`**，
+  // 地址写在 `source.src` 上（video-player-impl-web.ts 的 createVideoPlayer），
+  // 而 `HTMLSourceElement` 不继承 `HTMLMediaElement` —— 只拦后者等于没拦。
   function installElementSrc() {
-    [window.HTMLImageElement, window.HTMLMediaElement].forEach(function (Ctor) {
+    [window.HTMLImageElement, window.HTMLMediaElement, window.HTMLSourceElement].forEach(function (Ctor) {
       if (!Ctor) return;
       var desc = Object.getOwnPropertyDescriptor(Ctor.prototype, 'src');
       if (!desc || !desc.set) return;
@@ -213,7 +223,7 @@
         enumerable: desc.enumerable,
         get: function () { return desc.get.call(this); },
         set: function (v) {
-          desc.set.call(this, blobUrlFor(v) || v);
+          desc.set.call(this, blobUrlFor(v, mediaTypeFor(v)) || v);
         },
       });
     });

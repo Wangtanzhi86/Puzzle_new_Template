@@ -122,7 +122,7 @@
             "_value": true
           },
           "video": {
-            "_value": false
+            "_value": true
           },
           "webview": {
             "_value": false
@@ -190,9 +190,7 @@
             "_value": false
           }
         },
-        "flags": {
-          "LOAD_SPINE_MANUALLY": false
-        },
+        "flags": {},
         "includeModules": [
           "2d",
           "affine-transform",
@@ -205,7 +203,8 @@
           "graphics",
           "mask",
           "tween",
-          "ui"
+          "ui",
+          "video"
         ],
         "noDeprecatedFeatures": {
           "value": false,

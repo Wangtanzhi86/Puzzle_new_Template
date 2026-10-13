@@ -1,6 +1,6 @@
 {
   "host": "127.0.0.1",
-  "port": 21561,
+  "port": 27984,
   "portMode": "project",
   "clientConfigEntries": {
     "claude_code": {

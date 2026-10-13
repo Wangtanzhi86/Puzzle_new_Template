@@ -304,6 +304,7 @@ Creator 的预览 / 构建产物是增量编译的。改完 `.ts` 要在编辑�
 |---|---|
 | `tools/pack-playable.mjs` | 打包器主流程、命令行、按通道校验、体积门禁 |
 | `tools/lib/assets.mjs` | 找构建产物、PNG → WebP |
+| `tools/lib/branding.mjs` | **牌子**：产物页签上的游戏名 + 内联的 favicon（见下） |
 | `tools/lib/payload.mjs` | 打包格式：容器 + gzip + base85/base64，含自检 |
 | `tools/lib/channels.mjs` | **通道表**，要加平台就改这里 |
 | `tools/lib/zip.mjs` | 极简 ZIP 写入（store 方式，因为内容是 base85 已不可压） |
@@ -311,3 +312,19 @@ Creator 的预览 / 构建产物是增量编译的。改完 `.ts` 要在编辑�
 | `tools/runtime/base-fix.js` | 非层级文档地址补 `<base>` |
 | `extensions/playable-builder/` | 构建后自动打包的 Creator 扩展（可选） |
 | `integration/StoreCta.ts` | 游戏侧 CTA 桥，拖进 `assets/scripts/` 用 |
+
+### 页签上的游戏名和图标
+
+产物 HTML 的 `<title>` 和 `<link rel="icon">` 由 `tools/lib/branding.mjs` 出 ——
+icon 是**内联的 data URI**，不能是外链（三家平台的校验都会拦下来）。
+
+⚠️ 这份包里那份是**我们的**名字和 logo（`Art Story: Jigsaw Puzzle Game`），**直接拿去用就是给别人打广告**，
+第一件事就是换掉它。另外浏览器上还有两处不归打包器管的副本，要一起换：
+
+| 文件 | 管的是 |
+|---|---|
+| `tools/lib/branding.mjs` | 打包产物（**本包里的这份**） |
+| `build-templates/web-mobile/index.html` | Creator 构建出来的 `build/web-mobile/index.html`（本项目自带一份，你的项目没有就新建这个路径） |
+| `preview-template/index.ejs` | Creator 编辑器里点「预览」时那个 localhost 页面（编辑器自带的模板在 `资源管理器 → 项目 → 生成预览模板` 里能导出来一份改） |
+
+前两个是构建/打包流程里的，第三个是编辑器自己的 —— 三份是同一段内容的**手抄副本**，import 不进来，改了一处记得看另外两处。

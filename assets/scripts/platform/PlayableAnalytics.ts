@@ -33,7 +33,9 @@ const PASS_EVENTS = [
  * - `LEVEL_BUILT`     → `DISPLAYED`          关卡建好、碎片池即将填充 = 可以交互了
  * - `PIECE_PICK`      → `CHALLENGE_STARTED`  第一次拿起碎片
  * - `REPAIR_PROGRESS` → `CHALLENGE_PASS_25/50/75`
- * - `GAME_OVER`       → `CHALLENGE_SOLVED`   终局跳转前那一 tick
+ * - `LEVEL_COMPLETE`  → `CHALLENGE_SOLVED`   全部修完（`winCount = 0` 时的那条通关路）
+ * - `GAME_OVER`       → `CHALLENGE_SOLVED`   修满 `winCount` 被跳走那一 tick。
+ *                                             ⚠️ 失败路也抛 `GAME_OVER`，靠 `_failed` 挡掉，不然一次失败会报两条
  * - `REPAIR_FAILED`   → `CHALLENGE_FAILED`   当前场景走不到（没有槽位配 `altView`），接上是为了配置一改就生效
  * - `CTA_SHOW`        → `ENDCARD_SHOWN`      结束界面亮起
  * - `CTA_CLICK`       → `CTA_CLICKED`        三个跳转口都抛它，**含自动跳转**
@@ -60,6 +62,7 @@ export class PlayableAnalytics extends Component {
         EventBus.on(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
         EventBus.on(GameEvent.PIECE_PICK, this.onPick, this);
         EventBus.on(GameEvent.REPAIR_PROGRESS, this.onProgress, this);
+        EventBus.on(GameEvent.LEVEL_COMPLETE, this.onSolved, this);
         EventBus.on(GameEvent.GAME_OVER, this.onSolved, this);
         EventBus.on(GameEvent.REPAIR_FAILED, this.onFailed, this);
         EventBus.on(GameEvent.CTA_SHOW, this.onEndcard, this);
@@ -70,6 +73,7 @@ export class PlayableAnalytics extends Component {
         EventBus.off(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
         EventBus.off(GameEvent.PIECE_PICK, this.onPick, this);
         EventBus.off(GameEvent.REPAIR_PROGRESS, this.onProgress, this);
+        EventBus.off(GameEvent.LEVEL_COMPLETE, this.onSolved, this);
         EventBus.off(GameEvent.GAME_OVER, this.onSolved, this);
         EventBus.off(GameEvent.REPAIR_FAILED, this.onFailed, this);
         EventBus.off(GameEvent.CTA_SHOW, this.onEndcard, this);
@@ -88,8 +92,10 @@ export class PlayableAnalytics extends Component {
         this.track(PlayableEvent.CHALLENGE_STARTED);
     }
 
+    /** 通关。`_failed` 那句是给失败路兜的：那条路走完也会抛 `GAME_OVER`，
+     *  不挡的话一次失败会同时报 `CHALLENGE_FAILED` 和 `CHALLENGE_SOLVED` */
     private onSolved(): void {
-        if (this._solved) return;
+        if (this._solved || this._failed) return;
         this._solved = true;
         this.track(PlayableEvent.CHALLENGE_SOLVED);
     }

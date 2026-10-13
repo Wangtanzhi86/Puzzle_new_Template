@@ -21,6 +21,11 @@ export enum AudioEvent {
     PIECE_SNAP_FAIL = 'PIECE_SNAP_FAIL',
     PIECE_REPAIRED = 'PIECE_REPAIRED',
     REPAIR_FAILED = 'REPAIR_FAILED',
+    EXTINGUISH_SPRAY = 'EXTINGUISH_SPRAY',
+    EXTINGUISH_SHAKE = 'EXTINGUISH_SHAKE',
+    FIRE_HIDE = 'FIRE_HIDE',
+    REPAIR_FX = 'REPAIR_FX',
+    REPAIR_FX_HIDE = 'REPAIR_FX_HIDE',
     PIECE_SHOWN = 'PIECE_SHOWN',
     REPAIR_PROGRESS = 'REPAIR_PROGRESS',
     LEVEL_COMPLETE = 'LEVEL_COMPLETE',
@@ -51,8 +56,17 @@ export class AudioCue {
     @property({ displayName: '渐出时长（秒）', tooltip: '停止时音量先降到 0 再真停。0 = 当场停' })
     fadeOut = 0;
 
+    @property({ displayName: '循环播放', tooltip: '起播后一直循环，直到「结束事件」把它停掉。常驻音（激活事件选 NONE）本来就循环，不用勾这个' })
+    loop = false;
+
+    @property({ displayName: '循环间隔（秒）', tooltip: '一轮播完到下一轮起播之间空多久。0 = 无缝接上（走 AudioSource 自己的循环）；填了正数就一轮一轮排：播到剩「渐出时长」那么长开始渐出 → 停 → 空这么久 → 再渐入重来 —— 想有渐入渐出就必须填这个' })
+    loopGap = 0;
+
     @property({ type: Enum(AudioEvent), displayName: '结束事件', tooltip: '选「NONE」= 不主动停：一次性音效播完即止，常驻的一直循环' })
     stopEvent: AudioEvent = AudioEvent.NONE;
+
+    @property({ displayName: '结束事件只认第几格', tooltip: '0 = 任意一格都停（默认）。填 N = 只有第 N 格（Slot_0N，按碎片排列序）抛那个结束事件时才停。⚠️ 只对带着槽位序号的结束事件有意义（修复后露面 / 修好 / 修错了）—— 配别的等于永不主动停' })
+    stopSlot = 0;
 }
 
 /** 一条配置对应一个 AudioSource：共用一份就停不掉单条 */
@@ -66,7 +80,10 @@ interface Channel {
     /** 0–1 的音量系数。渐入渐出推的就是它，不直接写 source.volume —— 那样 fade 就没有起点 */
     gain: { v: number };
     onStart: () => void;
-    onStop: () => void;
+    /** 结束事件带什么参数就收什么 —— 「只认第几格」那条要读事件里的槽位序号 */
+    onStop: (...args: any[]) => void;
+    /** 带间隔的循环排在那儿的那次定时（渐出 / 空档 / 下一轮），停这条时要能撤掉 */
+    tick: () => void;
 }
 
 /**
@@ -76,7 +93,9 @@ interface Channel {
  * 三条硬规矩（AppLovin 合规，§8.4）：
  * 1. 玩家第一次碰屏幕之前一声都不出（含 BGM）。碰哪儿都算 —— 碎片池那条路走 PIECE_PICK；
  * 2. 广告被切到后台整体静音，回来接着放常驻音（一次性音效不补）；
- * 3. 结束界面亮出来（`END_SHOW`）就停掉全部、也不再起新的；点 CTA 跳商店再兜一次。
+ * 3. 结束界面亮出来（`END_SHOW`）就停掉全部、也不再起新的；`GAME_OVER`（终局那一跳之前）与点 CTA
+ *    跳商店各再兜一次。⚠️ `GAME_OVER` 这条是**给失败动画留的位**：那段视频自带声音（DOM 元素，
+ *    不归这儿管），播它之前必须先让游戏这盘音停下来，否则两路声音叠在一起（§18）。
  *
  * `END_SHOW` 是关场事件本身，绑在它上面的条目必然被自己的 stopAll 掐掉 ——
  * 结束界面要响的走 `END_DROP`（logo / 按钮开始下落，晚 `bgFadeTime`，见 `CtaController`）。
@@ -102,6 +121,7 @@ export class AudioManager extends Component {
         input.on(Input.EventType.TOUCH_START, this.unlock, this);
         EventBus.on(GameEvent.PIECE_PICK, this.unlock, this);
         EventBus.on(GameEvent.END_SHOW, this.onEnd, this);
+        EventBus.on(GameEvent.GAME_OVER, this.onEnd, this);
         EventBus.on(GameEvent.CTA_CLICK, this.onCtaClick, this);
         EventBus.on(GameEvent.AUDIO_MUTE, this.onMute, this);
         this.build();
@@ -111,12 +131,14 @@ export class AudioManager extends Component {
         input.off(Input.EventType.TOUCH_START, this.unlock, this);
         EventBus.off(GameEvent.PIECE_PICK, this.unlock, this);
         EventBus.off(GameEvent.END_SHOW, this.onEnd, this);
+        EventBus.off(GameEvent.GAME_OVER, this.onEnd, this);
         EventBus.off(GameEvent.CTA_CLICK, this.onCtaClick, this);
         EventBus.off(GameEvent.AUDIO_MUTE, this.onMute, this);
         for (const ch of this._channels) {
             EventBus.off(ch.cue.event, ch.onStart);
             EventBus.off(ch.cue.stopEvent, ch.onStop);
             Tween.stopAllByTarget(ch.gain);
+            this.cancel(ch);
         }
         this._channels = [];
         if (this._nodes) {
@@ -140,9 +162,14 @@ export class AudioManager extends Component {
                 gain: { v: 1 },
                 onStart: null,
                 onStop: null,
+                tick: null,
             };
             ch.onStart = (): void => this.playCue(ch);
-            ch.onStop = (): void => this.stopChannel(ch);
+            // 「只认第几格」是给常驻音用的（第 6 格修好才停女人哭那种）：
+            // 结束事件带着槽位序号来时先对一下，不是那一格就不停
+            ch.onStop = cue.stopSlot > 0
+                ? (slotIndex: number): void => { if (slotIndex === cue.stopSlot - 1) this.stopChannel(ch); }
+                : (): void => this.stopChannel(ch);
             if (!ch.resident) EventBus.on(cue.event, ch.onStart);
             if (cue.stopEvent !== AudioEvent.NONE) EventBus.on(cue.stopEvent, ch.onStop);
             this._channels.push(ch);
@@ -162,13 +189,34 @@ export class AudioManager extends Component {
         if (this._closed && ch.cue.event !== AudioEvent.END_DROP) return;
         const source = ch.source;
         source.clip = ch.cue.clip;
-        source.loop = ch.resident;
+        const repeats = ch.resident || ch.cue.loop;
+        // 填了「循环间隔」就不交给 AudioSource 自己的 loop —— 那个是无缝接上的，
+        // 中间既没有空档也没有渐出。改成一轮一轮自己排，才能「渐入 → 播 → 渐出 → 空 → 再来」
+        source.loop = repeats && ch.cue.loopGap <= 0;
         this.fade(ch, 0, 1, ch.cue.fadeIn);
         source.play();
         ch.live = true;
+        if (repeats && ch.cue.loopGap > 0) this.cycle(ch);
+    }
+
+    /** 带间隔的一轮：播到「还剩渐出时长那么长」就开始渐出，停了空 `循环间隔` 再整轮重来 */
+    private cycle(ch: Channel): void {
+        this.plan(ch, Math.max(0, ch.cue.clip.getDuration() - ch.cue.fadeOut), (): void => {
+            this.fade(ch, ch.gain.v, 0, ch.cue.fadeOut, (): void => {
+                ch.source.stop();
+                this.plan(ch, ch.cue.loopGap, (): void => this.playCue(ch));
+            });
+        });
+    }
+
+    /** 排一次定时，并把这次的回调记在通道上 —— 停这条 / 静音 / 销毁时要能撤掉 */
+    private plan(ch: Channel, delay: number, fn: () => void): void {
+        ch.tick = fn;
+        this.scheduleOnce(fn, delay);
     }
 
     private stopChannel(ch: Channel): void {
+        this.cancel(ch);
         const source = ch.source;
         if (ch.live && ch.cue.fadeOut > 0) {
             this.fade(ch, ch.gain.v, 0, ch.cue.fadeOut, (): void => source.stop());
@@ -203,7 +251,7 @@ export class AudioManager extends Component {
         ch.source.volume = ch.cue.volume * this.volume * ch.gain.v;
     }
 
-    /** 结束界面亮出来（`SceneBgSwap` 换完底图）：全部停掉，也不再起新的 */
+    /** 关场：结束界面亮出来（`SceneBgSwap` 换完底图）/ 终局那一跳之前。全部停掉，也不再起新的 */
     private onEnd(): void {
         this.stopAll();
     }
@@ -217,12 +265,31 @@ export class AudioManager extends Component {
         for (const ch of this._channels) this.stopChannel(ch);
     }
 
+    private cancel(ch: Channel): void {
+        if (!ch.tick) return;
+        this.unschedule(ch.tick);
+        ch.tick = null;
+    }
+
     private onMute(muted: boolean): void {
         this._muted = muted;
         for (const ch of this._channels) {
             if (!ch.live) continue;
-            if (muted) ch.source.pause();
-            else if (ch.resident && !this._closed) ch.source.play();
+            if (muted) {
+                // 带间隔的那条排的定时得撤掉：不然回来时它已经在「空档」里，
+                // 下一轮接不上，这声就再也不响了
+                this.cancel(ch);
+                ch.source.pause();
+            } else if (ch.resident && !this._closed) {
+                // 带间隔的从整轮开头重放（`play()` 在暂停过的源上是从暂停处接着走的，
+                // 那样这一轮的时长就对不上了）
+                if (ch.cue.loopGap > 0) {
+                    ch.source.stop();
+                    this.playCue(ch);
+                } else {
+                    ch.source.play();
+                }
+            }
         }
     }
 }

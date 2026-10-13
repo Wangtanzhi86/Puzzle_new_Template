@@ -25,10 +25,13 @@ const wanted = {
     CircleReveal: ['revealEffect'],
     StickerApply: ['frontEffect', 'backEffect'],
     SceneBgSwap: ['revealEffect', 'revealView'],
+    GroupReveal: ['revealEffect'],
     IdleMotion: [],
     FlushAction: ['water'],
     BroomSweep: ['items'],
     SprayAction: ['mistFrame'],
+    ExtinguishAction: ['mistFrame', 'fire'],
+    HammerAction: ['fx', 'smoke'],
     GroundWater: [],
     LandscapeLayout: ['gameLayer', 'progressLayer', 'poolLayer', 'poolBg', 'scrollView', 'cta'],
     BackgroundSwap: ['bg', 'landscapeFrame'],
@@ -52,12 +55,13 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
     }
     for (const c of n.children) walk(c);
 })(canvas);
-// 替换节点那两个口是可选的，但要么都填、要么都不填；
-// 配了渐显（swapFadeTime > 0）时两边都必须有 UIOpacity，且「显示的那个」要排在「隐藏的那个」后面
+// 替换节点：`swapShow` 单独填就生效（这一格只「亮出显示节点」），`swapHide` 是可选的 ——
+// 只填 `swapHide` 才是配错（没有要放出来的东西，整段什么都不发生）；
+// 两个都填且配了渐显（swapFadeTime > 0）时两边都必须有 UIOpacity，且「显示的那个」要排在「隐藏的那个」后面
 (function checkSwap(n) {
     const slot = n.getComponent('PieceSlot');
-    if (slot && !!slot.swapHide !== !!slot.swapShow) {
-        out.missing.push('PieceSlot@' + n.name + ' 换掉的隐藏 / 显示节点没配齐');
+    if (slot && slot.swapHide && !slot.swapShow) {
+        out.missing.push('PieceSlot@' + n.name + ' 只配了「隐藏节点」没配「显示节点」，这一格什么都没得换');
     } else if (slot && slot.swapHide && slot.swapShow && slot.swapFadeTime > 0) {
         if (!slot.swapHide.getComponent(cc.UIOpacity) || !slot.swapShow.getComponent(cc.UIOpacity)) {
             out.missing.push('PieceSlot@' + n.name + ' 换节点渐显需要两个节点都挂 UIOpacity');
@@ -118,8 +122,8 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
     }
     for (const c of n.children) checkGroundWater(c);
 })(canvas);
-// 收尾动作（通马桶 / 扫地，§14）：淡出全靠 UIOpacity，缺一个就是取到 null 直接抛（淡出那步炸了，
-// 这一格的 PIECE_SHOWN 就永远不抛 —— 最后一格修好时完成背景和结束界面都不出来）。
+// 收尾动作（通马桶 / 扫地 / 喷瓶 / 灭火，§14）：淡出全靠 UIOpacity，缺一个就是取到 null 直接抛
+// （淡出那步炸了，这一格的 PIECE_SHOWN 就永远不抛 —— 最后一格修好时完成背景和结束界面都不出来）。
 // 扫地那组还得真有子物品可扫，空的就是整段什么都不发生。
 (function checkSpot(n) {
     const slot = n.getComponent('PieceSlot');
@@ -150,12 +154,42 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
             }
         }
     }
-    // 喷瓶不收修复图（它是硬隐藏），所以不并进下面那条「有收尾动作就得挂 UIOpacity」
-    const acted = flush || sweep;
+    const ext = n.getComponent('ExtinguishAction');
+    if (ext && ext.fire && !ext.fire.getComponent(cc.UIOpacity)) {
+        out.missing.push('ExtinguishAction@' + n.name + ' 火焰节点没挂 UIOpacity，下落时的渐隐起不来');
+    }
+    const hammer = n.getComponent('HammerAction');
+    if (hammer) {
+        if (!hammer.puffs.length || !hammer.hammers.length) {
+            out.missing.push('HammerAction@' + n.name + ' 没配全小烟雾 / 锤子，handles() 是 false，这一段整个不会演');
+        }
+        for (const p of hammer.puffs) {
+            if (!p.getComponent(cc.UIOpacity)) {
+                out.missing.push('HammerAction@' + n.name + ' 小烟雾「' + p.name + '」没挂 UIOpacity，渐显渐隐起不来');
+            }
+        }
+    }
+    // 喷瓶和敲击都不收修复图（它们是硬隐藏），所以不并进下面那条「有收尾动作就得挂 UIOpacity」
+    const acted = flush || sweep || ext;
     if (acted && slot.repairedView && !slot.repairedView.node.getComponent(cc.UIOpacity)) {
         out.missing.push('@' + n.name + ' 有收尾动作但修复图没挂 UIOpacity，收尾那一步的淡出起不来');
     }
     for (const c of n.children) checkSpot(c);
+})(canvas);
+// 组揭晓：扩散材质是挂在每个节点自己的 Sprite 上的，没挂 Sprite 就是运行期直接抛；
+// 槽位 / 节点空着就是「永远等不到」或「揭晓没东西可亮」
+(function checkGroupReveal(n) {
+    const g = n.getComponent('GroupReveal');
+    if (g) {
+        if (!g.slots.length) out.missing.push('GroupReveal@' + n.name + ' 没配「这一组的槽位」，永远等不到揭晓');
+        if (!g.nodes.length) out.missing.push('GroupReveal@' + n.name + ' 没配「要亮出的节点」，揭晓没东西可亮');
+        for (const node of g.nodes) {
+            if (!node || !node.getComponent(cc.Sprite)) {
+                out.missing.push('GroupReveal@' + n.name + ' 要亮出的节点里有一个没挂 Sprite，扩散材质挂不上去');
+            }
+        }
+    }
+    for (const c of n.children) checkGroupReveal(c);
 })(canvas);
 // 结束界面（§14）：`UILayer` 本来就是四边对齐的，`CtaLayer → CtaRoot → End → bg` 这条链少一环
 // 底图就铺不满画布（横屏画布约 1770 宽，缺了就是中间一块 720 宽的卡片）。
@@ -286,7 +320,14 @@ function checkButton(path, name) {
 
     const factory = canvas.getChildByPath('PiecePoolLayer/ScrollView').getComponent('PieceFactory');
     const apply = canvas.getChildByName('EffectLayer').getComponent('StickerApply');
-    if (!factory || !factory.peelParams || !apply || !apply.frontEffect) return;
+    // 没有任何槽位指过来时（当前 6 格全走圆形扩散）这套是死配置，两边姿势对不对得上无所谓
+    let stickerUsed = false;
+    (function any(n) {
+        const s = n.getComponent('PieceSlot');
+        if (s && s.stickerApply) stickerUsed = true;
+        for (const c of n.children) any(c);
+    })(canvas);
+    if (!stickerUsed || !factory || !factory.peelParams || !apply || !apply.frontEffect) return;
     const p = factory.peelParams;
     const drift =
         num(p.corner.x, apply.corner.x) || num(p.corner.y, apply.corner.y) ||
