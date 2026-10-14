@@ -2,6 +2,7 @@ import { _decorator, Component, Node, Rect, Sprite, SpriteFrame, UIOpacity, UITr
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
 import { OverlayMode } from '../data/LevelTypes';
+import { BrushReveal } from '../gameplay/BrushReveal';
 import { CircleReveal } from '../gameplay/CircleReveal';
 import { RepairReveal } from '../gameplay/RepairReveal';
 import { StickerApply } from '../gameplay/StickerApply';
@@ -79,6 +80,9 @@ export class PieceSlot extends Component {
 
     @property({ type: CircleReveal, displayName: '圆形扩散揭晓', tooltip: '来自「结束背景」那套换图手法：破损图留着垫在底下，修复图从缺口中心以圆形羽化扩出来盖掉它，扩完才收破损图。填了它这一格就整格走它 —— 上面那些揭晓都不会发生' })
     circleReveal: CircleReveal = null;
+
+    @property({ type: BrushReveal, displayName: '画笔涂色揭晓', tooltip: '从左上角起笔斜着来回刷到右下角，刷过的地方才显示修复图（没刷到的仍是底下那张破损图）。填了它这一格就整格走它 —— 和上面那些揭晓只能填一个' })
+    brushReveal: BrushReveal = null;
 
     @property({ type: StickerApply, displayName: '贴纸贴平揭晓', tooltip: '和碎片揭角反着演：修复图整张出现在缺口上、一角还翘着，再把折线推向对边按平。填了它这一格就整格走它 —— 和「圆形扩散揭晓」只能填一个，两个都填时走它' })
     stickerApply: StickerApply = null;
@@ -216,6 +220,12 @@ export class PieceSlot extends Component {
             this.stickerApply.play(this, this.shown);
             return true;
         }
+        // 画笔涂色揭晓：和圆形扩散同一套「底下垫着破损图」，只是把圆换成了斜着来回刷的笔迹。
+        // 也是整格接管 —— 胶带 / 换节点 / 序列帧都不会发生
+        if (this.brushReveal && this.brushReveal.handles(this)) {
+            this.brushReveal.play(this, this.covered);
+            return true;
+        }
         // 圆形扩散揭晓：破损图留着垫在底下，等修复图扩出来盖掉它再收（covered）——
         // 这一格整格由它接管，下面的胶带 / 换节点 / 序列帧都不会发生
         if (this.circleReveal && this.circleReveal.handles(this)) {
@@ -271,7 +281,7 @@ export class PieceSlot extends Component {
         EventBus.emit(GameEvent.GUIDE_RESUME);
     };
 
-    /** 修复图铺满了（圆形扩散）：这一格才算露面 —— 先把垫在底下的破损图收掉 */
+    /** 修复图铺满了（圆形扩散 / 画笔涂色）：这一格才算露面 —— 先把垫在底下的破损图收掉 */
     private covered = (): void => {
         this.hideBroken();
         this.shown();

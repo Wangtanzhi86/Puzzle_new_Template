@@ -1,3 +1,18 @@
 {
-  "__version__": "1.3.9"
+  "__version__": "1.3.9",
+  "splash-setting": {
+    "logo": {
+      "image": "project://settings/logo.png",
+      "type": "custom"
+    },
+    "background": {
+      "color": {
+        "x": 0.3215686274509804,
+        "y": 0.6196078431372549,
+        "z": 0.5803921568627451,
+        "w": 1
+      },
+      "type": "color"
+    }
+  }
 }

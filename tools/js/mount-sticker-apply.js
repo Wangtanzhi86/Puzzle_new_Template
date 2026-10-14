@@ -8,9 +8,9 @@
  *     「本格单独配揭角」的槽位**的回落值，必须和碎片那边一模一样，吸附那一刻「手上翘着的角」
  *     和「缺口上翘着的角」才是同一个姿势。勾了覆盖的槽位现读它自己那份，不受这里影响
  *     （`StickerApply.play` 里 `host.peel` 优先）
- *   - 把六格的 `stickerApply` 指过去，并清掉它们各自的 `circleReveal`
- *     （两个都是「整格接管」、都要往同一张修复图上挂材质，只能填一个；`repair()` 里贴平排在
- *     前面、命中就 return，所以两处都填时圆形扩散一次都跑不到 —— 留着只会让人以为它在生效）
+ *   - 把六格的 `stickerApply` 指过去，并清掉它们各自的 `circleReveal` / `brushReveal`
+ *     （三个都是「整格接管」、都要往同一张修复图上挂材质，只能填一个；`repair()` 里贴平排在
+ *     最前面、命中就 return，所以别处都填时后面那些一次都跑不到 —— 留着只会让人以为它在生效）
  *   - 收尾脉冲的材质口 = `piece-glow.effect`（贴平推完那一下「缩小淡出 → 放大淡入」途中的边缘高亮，
  *     和拖动亮边同一份材质，不跟圆形扩散抢 —— 它不揭任何东西，只是贴好那一下的反馈）
  *
@@ -58,7 +58,11 @@ for (const name of SLOTS) {
   slot.stickerApply = apply;
   if (slot.circleReveal) {
     slot.circleReveal = null;
-    cleared.push(name);
+    cleared.push(name + ' 圆形扩散');
+  }
+  if (slot.brushReveal) {
+    slot.brushReveal = null;
+    cleared.push(name + ' 画笔涂色');
   }
   wired.push(name);
 }
@@ -75,8 +79,11 @@ return {
   pulseEffect: apply.pulseEffect ? apply.pulseEffect.name + ' | ' + apply.pulseEffect.uuid : null,
   pulse: [apply.pulseShrinkScale, apply.pulseMinOpacity, apply.pulseDownTime, apply.pulseUpTime, apply.pulseMarginRatio, apply.pulseRimRatio].join(' / '),
   wired,
-  circleRevealCleared: cleared,
-  stillCircleReveal: brokenLayer.children
-    .filter((n) => n.getComponent('PieceSlot') && n.getComponent('PieceSlot').circleReveal)
+  cleared,
+  stillOtherReveal: brokenLayer.children
+    .filter((n) => {
+      const s = n.getComponent('PieceSlot');
+      return s && (s.circleReveal || s.brushReveal);
+    })
     .map((n) => n.name),
 };

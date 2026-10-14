@@ -19,7 +19,7 @@ export interface PieceSource {
 /**
  * 碎片是运行时实例（§3 允许），所以这里代码建节点，不用 prefab。
  * 池里按**素材原始像素**显示（不放大也不缩小），宽或高超过 `maxPieceSize` 的等比缩到它 ——
- * 尺寸完全由图片自己决定，不会被拉变形。间隔由 `PiecePool.fitSpacing` 照这些尺寸现算（一屏 4 块）。
+ * 尺寸完全由图片自己决定，不会被拉变形。碎片之间的间隔是定值，在 `content` 的 Layout 上配。
  */
 @ccclass('PieceFactory')
 export class PieceFactory extends Component {

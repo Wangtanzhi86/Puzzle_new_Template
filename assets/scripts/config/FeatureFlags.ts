@@ -10,6 +10,7 @@ const DEFAULTS = {
     revealOnRepair: true,
     stickerApply: true,
     circleReveal: true,
+    brushReveal: true,
     sweepOnRepair: true,
     sweepOnComplete: true,
     guide: true,
@@ -52,6 +53,9 @@ export class FeatureFlags extends Component {
     @property({ displayName: '修复圆形扩散', tooltip: '修好时修复图从缺口中心羽化扩出来盖住破损图（和结束背景同一套材质）。只有填了「圆形扩散揭晓」的槽位走它，关掉就整条回退到序列帧那套' })
     circleReveal = DEFAULTS.circleReveal;
 
+    @property({ displayName: '修复画笔涂色', tooltip: '修好时一支圆头画笔从左上角斜着来回刷到右下角，刷过的地方才显示修复图。只有填了「画笔涂色揭晓」的槽位走它' })
+    brushReveal = DEFAULTS.brushReveal;
+
     @property({ displayName: '单块修复扫光' })
     sweepOnRepair = DEFAULTS.sweepOnRepair;
 
@@ -78,6 +82,7 @@ export class FeatureFlags extends Component {
     static get revealOnRepair(): boolean { return (FeatureFlags.panel ?? DEFAULTS).revealOnRepair; }
     static get stickerApply(): boolean { return (FeatureFlags.panel ?? DEFAULTS).stickerApply; }
     static get circleReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).circleReveal; }
+    static get brushReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).brushReveal; }
     static get sweepOnRepair(): boolean { return (FeatureFlags.panel ?? DEFAULTS).sweepOnRepair; }
     static get sweepOnComplete(): boolean { return (FeatureFlags.panel ?? DEFAULTS).sweepOnComplete; }
     static get guide(): boolean { return (FeatureFlags.panel ?? DEFAULTS).guide; }

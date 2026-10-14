@@ -255,7 +255,7 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
           → CHALLENGE_PASS_75 → CHALLENGE_SOLVED → CTA_CLICKED
 ```
 
-（`ENDCARD_SHOWN` 按 §7.4 不会出现。）
+（`ENDCARD_SHOWN` 排在这一串**后面**：结算界面是最后一格演完之后才亮的，见 §7.4。）
 
 ## 7.2 事件映射（本项目的落点）
 
@@ -268,7 +268,7 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 | `CHALLENGE_PASS_75` | `REPAIR_PROGRESS` | 同上 | 修到后段。**三档的流失率**就是关卡难度曲线 |
 | `CHALLENGE_SOLVED` | `GAME_OVER` | [EndgameCta.ts:95](../assets/scripts/platform/EndgameCta.ts#L95) | 达成终局条件，跳商店**之前**那一 tick |
 | `CHALLENGE_FAILED` | `REPAIR_FAILED` | [PieceSlot.ts:200](../assets/scripts/level/PieceSlot.ts#L200) | 修错。**当前场景走不到**，见 §7.4 |
-| `ENDCARD_SHOWN` | `CTA_SHOW` | [CtaController.ts:73](../assets/scripts/platform/CtaController.ts#L73) | 结束界面在广告内部亮起来。**当前场景走不到**，见 §7.4 |
+| `ENDCARD_SHOWN` | `CTA_SHOW` | [CtaController.ts:73](../assets/scripts/platform/CtaController.ts#L73) | 结束界面在广告内部亮起来。**排在跳商店之后**，见 §7.4 |
 | `CTA_CLICKED` | `CTA_CLICK` | [EndgameCta.ts:109](../assets/scripts/platform/EndgameCta.ts#L109) / [CtaController.ts:122](../assets/scripts/platform/CtaController.ts#L122) / [GameCta.ts:65](../assets/scripts/platform/GameCta.ts#L65) | 玩家点了下载。**自动跳转也算**（见 §7.5） |
 
 每个事件**只报一次**（组件内部一次性标记）；`PASS_25/50/75` 三条各自独立只报一次。
@@ -286,12 +286,12 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 
 这是 §4 第 1 条在本项目的实例。
 
-`CHALLENGE_PASS_25/50/75` 的 `done / 分母` 里那个分母**取 `EndgameCta.winCount`**（现在是 **4**），
-不是槽位总数（6）。`winCount = 0`（不按数量跳、退回「全部修完出结束界面」那条老路）时才退回用
-`REPAIR_PROGRESS` 给的槽位总数。
+`CHALLENGE_PASS_25/50/75` 的 `done / 分母` 里那个分母**取 `EndgameCta.winCount`**（现在是 **6**，
+= 槽位总数），不是直接写死的槽位数。`winCount = 0`（不按数量跳、退回「全部修完出结束界面」那条老路）
+时才退回用 `REPAIR_PROGRESS` 给的槽位总数。
 
-**为什么必须这样**：`winCount < 槽位数` 时玩家修到第 4 格就被自动跳走了，按 6 算的话后两档和
-`CHALLENGE_SOLVED` 永远不会出现 —— 那违反官方「用了 `CHALLENGE_STARTED` 就必须至少用
+**为什么必须这样**：`winCount < 槽位数` 时玩家在终局线上就被自动跳走了（本项目 2026-10-14 之前是 4），
+按 6 算的话后两档和 `CHALLENGE_SOLVED` 永远不会出现 —— 那违反官方「用了 `CHALLENGE_STARTED` 就必须至少用
 `CHALLENGE_SOLVED` / `CHALLENGE_FAILED` 之一」的配对要求，报表上也会显示成「所有人都卡死」。
 
 `winCount` 是**运行期从场景里读的**（`director.getScene().getComponentInChildren(EndgameCta)`，
@@ -302,18 +302,22 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 
 | `winCount` | 分母 | 25% | 50% | 75% | SOLVED |
 |---|---|---|---|---|---|
-| **4**（现状） | 4 | 第 1 格 | 第 2 格 | 第 3 格 | 第 4 格 |
+| **6**（现状，= 槽位数） | 6 | 第 2 格 | 第 3 格 | 第 5 格 | 第 6 格 |
+| 4（2026-10-14 之前） | 4 | 第 1 格 | 第 2 格 | 第 3 格 | 第 4 格 |
 | 0（不按数量跳） | 槽位数 6 | 第 2 格 | 第 3 格 | 第 5 格 | 修满全部 |
 
 一次跨过好几格也不会漏报：三个阈值是一次算完的（过了哪几档就按序补发哪几档）。
 
-## 7.4 当前场景走不到的两条
+## 7.4 当前场景走不到的那一条
 
 - **`CHALLENGE_FAILED`**：只有配了「达标后的修复图（`altView`）」的槽位才会抛 `REPAIR_FAILED`
   （且它的「前置槽位（`requires`）」没修齐）。当前 6 个槽位这两项**全空**，所以永远不会抛 ——
   埋点这侧接了，是为了配置一改就自动生效，不用再回来动代码。
-- **`ENDCARD_SHOWN`**：`CTA_SHOW` 由 `CtaController` 抛，而 `CtaController` 只在「全部修完」那条路上
-  被 `END_SHOW` 叫醒。`winCount = 4 < 6`，玩家在第 4 格就被 `EndgameCta` 跳走了，`END_SHOW` 到不了。
+
+`ENDCARD_SHOWN` **2026-10-14 起走得到了**：`winCount` 改成 6（全部修完）之后最后一格的
+`PIECE_SHOWN` 会到，`SceneBgSwap` 扩散完抛 `END_SHOW`，`CtaController` 随即抛 `CTA_SHOW`。
+注意它**排在跳商店之后**（第 6 格吸附的下一帧就 `mraid.open`），所以这条一般报在 `CHALLENGE_SOLVED`
+和 `CTA_CLICKED` 的后面 —— 时间戳会晚一两秒，不是上报顺序错。
 
 这两条**不影响合规**：官方要求的是「用了 `CHALLENGE_STARTED` 就必须有 `SOLVED` 或 `FAILED` 之一」，
 `CHALLENGE_SOLVED` 是走得到的。
@@ -344,7 +348,7 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 | 改了 | 要做什么 |
 |---|---|
 | 关卡槽位数 | 什么都不用做。分母是 `winCount`，`PASS_*` 的触发点自动跟着走 |
-| `EndgameCta.winCount` | 什么都不用做，运行期现读。但**改成 0** 会让分母退回槽位总数，顺便让 `ENDCARD_SHOWN` 变成走得到 —— 那两条按 §7.4 说明已经接好了 |
+| `EndgameCta.winCount` | 什么都不用做，运行期现读。但**改成 0** 会让分母退回槽位总数（`ENDCARD_SHOWN` 照旧走得到）—— 那条按 §7.4 说明已经接好了 |
 | 给某个槽位配上 `requires` + `altView` | 什么都不用做，`REPAIR_FAILED` 一抛就开始报 `CHALLENGE_FAILED` |
 | 想加新的里程碑 | 改 `PlayableAnalytics.ts` 里的 `PASS_MARKS` / `PASS_EVENTS` 两个数组，长度对齐即可（**只能用官方预定义的事件名**） |
 | 想加一个全新的上报点 | 先确认官方事件表（§2）里有对应名字；没有就别报 —— 自定义事件不会被追踪。然后在 `onEnable` / `onDisable` 里**对称**加一对 `EventBus.on` / `off` |

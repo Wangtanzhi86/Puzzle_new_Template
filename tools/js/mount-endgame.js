@@ -43,6 +43,9 @@ const ctrl = cta.getComponent('EndgameCta') || cta.addComponent('EndgameCta');
 ctrl.bridge = canvas.getComponent('MraidBridge');
 ctrl.failRoot = fail;
 ctrl.failButton = failBtn.getComponent(cc.Button);
+// 终局线 = 槽位总数：修满 4 格就跳是「玩家永远修不满整张图」，2026-10-14 改成「全部修完」。
+// 这样总修复事件（`LEVEL_COMPLETE`）才真的抛得出来 —— 胜利风铃绑的就是它（见 mount-audio.js）
+ctrl.winCount = 6;
 
 return {
     node: ctrl.node.name,

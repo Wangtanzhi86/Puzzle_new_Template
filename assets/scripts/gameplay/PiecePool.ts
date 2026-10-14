@@ -49,21 +49,12 @@ export class PiecePool extends Component {
 
     protected onEnable(): void {
         EventBus.on(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
-        EventBus.on(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
         EventBus.on(GameEvent.GAME_OVER, this.lockScroll, this);
     }
 
     protected onDisable(): void {
         EventBus.off(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
-        EventBus.off(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
         EventBus.off(GameEvent.GAME_OVER, this.lockScroll, this);
-        this.unscheduleAllCallbacks();
-    }
-
-    /** 开局就是横屏时，建池子那一下落在竖栏里（量不到横排的可视宽度），转回竖屏得补算一次。
-     *  延后一拍是因为 `LandscapeLayout` 把 `view` 还回竖屏尺寸也在这一条事件里 —— 谁先注册不一定。 */
-    private onOrientation(portrait: boolean): void {
-        if (portrait) this.scheduleOnce(this.fitSpacing, 0);
     }
 
     get count(): number {
@@ -99,24 +90,8 @@ export class PiecePool extends Component {
             }
         }
         this._next = end;
-        this.fitSpacing();
-    }
-
-    /** 一屏最多摆 4 块：按可视宽度现算间隔，让碎片铺满整条池子（不足 4 块就按实际块数铺满）。
-     *  碎片按素材原始像素显示、每块宽窄还不一样，固定间隔要么留一大截空、要么把第 5 块提前带进画面。
-     *  超过 4 块时按「最宽的 4 块」算，保证一屏只装得下 4 块 —— 第 5 块起要滚才看得到。
-     *  ⚠️ `sv.view` 是 `UITransform` 不是节点（`ScrollView` 的 getter 取的是 `content.parent`），
-     *  它上面那个 RECT `Mask` 就是可视范围，所以可视宽度取它。 */
-    private fitSpacing(): void {
-        const view = this.scrollView && this.scrollView.view;
-        const layout = this.content.getComponent(Layout);
-        // 横屏时这条不是「一行」、可视宽度也换成了竖栏的（`LandscapeLayout` 改的），等转回竖屏再算
-        if (!view || !layout || layout.type !== Layout.Type.HORIZONTAL || this._entries.length < 2) return;
-        const widths = this._entries.map((e) => e.piece.getComponent(UITransform).width).sort((a, b) => b - a);
-        const span = widths.slice(0, 4).reduce((a, b) => a + b, 0);
-        const gaps = Math.min(widths.length, 4) - 1;
-        layout.spacingX = Math.max(0, (view.width - layout.paddingLeft - layout.paddingRight - span) / gaps);
-        layout.updateLayout(true);
+        // 排完再回去：`onLevelBuilt` 末尾那次 `scrollToStart()` 得按排好的内容宽度算
+        this.content.getComponent(Layout).updateLayout(true);
     }
 
     /** 一行碎片比视区宽时引擎会把内容贴右（`_adjustContentOutOfBoundary`），一进来先看到的是行尾，

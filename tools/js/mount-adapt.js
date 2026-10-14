@@ -43,10 +43,10 @@ bgSprite.type = cc.Sprite.Type.SLICED;
 //    「补长边」之后画布比设计稿多一条边。原来 GameLayer（bottom 461.441）、碎片池（bottom 56.187）、
 //    进度条（bottom 354.579）都锚在画布底边上 —— 那是按「画布 == 设计稿」摆的；画布一变高，
 //    它们就整体往下挪了多出来的那一半，长屏上看着就是「内容偏下、顶上空的」。一条边都不贴之后，
-//    节点停在设计稿里的位置（GameLayer y=195.72 / 池子 y=-433.813 / 进度条 y=-240.421），
+//    节点停在设计稿里的位置（GameLayer y=180.435 / 池子 y=-433.813 / 进度条 y=-293.92），
 //    而设计稿本来就居中在画布上 —— 于是构图和 SHOW_ALL 时一模一样，只是黑边被背景填了。
-//    尺寸必须显式再钉一次：对齐边一拆，节点就回去用**自己存的 contentSize**（GameLayer 存的是
-//    980，不是摆出来的 748.559），宽高当场就错了。这几个数是场景里摆好的，不是算出来的。
+//    尺寸必须显式再钉一次：对齐边一拆，节点就回去用**自己存的 contentSize**，
+//    宽高当场就错了。这几个数是场景里摆好的，不是算出来的。
 //    （拆之前 L/R 对齐也会让它跟着画布一起变宽，把 Scene_BG / 完成背景 / RECT Mask 横向拉长。）
 const unanchor = (node, w, h) => {
   const ut = node.getComponent(cc.UITransform);
@@ -59,7 +59,10 @@ const unanchor = (node, w, h) => {
   return wd;
 };
 
-const gameWidget = unanchor(canvas.getChildByName('GameLayer'), 580, 748.559);
+//    GameLayer 的尺寸跟着拼图区底图走：1010/背景/捉奸黑白.png 是 976×1221，
+//    框高 840 时框宽 = 840 × 976/1221 = 671.45（Scene_BG / 完成背景 也钉的这个数）。
+//    换一张比例的底图就要一起改这三个数，否则 Scene_BG 会被横向压扁。
+const gameWidget = unanchor(canvas.getChildByName('GameLayer'), 671.45, 840);
 const poolLayer = canvas.getChildByName('PiecePoolLayer');
 const poolWidget = unanchor(poolLayer, 720, 300);
 const progress = canvas.getChildByPath('UILayer/ProgressLayer');

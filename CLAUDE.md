@@ -22,18 +22,19 @@ ANALYTICS.md 自成一个文件，它内部的「§N」指它自己，写明 `CL
 > 这一节是**结论**，不是历史 —— 详细来龙去脉在 [docs/WORKLOG.md](docs/WORKLOG.md)。
 > ⚠️ 这里的数字会随换美术 / 改关卡而变，动手前先现读一遍。
 
-### 当前场景（2026-10-12 核实）
+### 当前场景（2026-10-14 核实）
 
 | 项 | 值 |
 |---|---|
 | 槽位 | **6 个**：`Slot_01` … `Slot_06`；`pieceId` = 0 / 1 / 2 / 3 / 4 / 5（唯一，不并列） |
-| 碎片池 | `batchSize = 3`（一屏 3 块，这一批用光才补下一批）、`batchFadeTime = 0.5`、`reflow = true`（自动补位开着） |
-| 终局 | `EndgameCta.winCount = 4` —— 修满 4 格自动跳商店；**第 4 格吸附成功那一刻就跳**，不等它的揭晓动画 |
-| 每格揭晓 | 6 格**全部**走「贴纸贴平」（`stickerApply`），推完还带一下**收尾脉冲**（缩小淡出 → 放大淡入）；`circleReveal` 全为 null；`revealAnim` 都配着但走不到 |
+| 碎片池 | `batchSize = 3`（一屏 3 块，这一批用光才补下一批）、`batchFadeTime = 0.5`、`reflow = true`（自动补位开着）、**碎片间距 = 40（定值，`content` 的 Layout 上配，代码不再算）** |
+| 终局 | `EndgameCta.winCount = 6` —— **修满整张图（6 格）才跳商店**；第 6 格吸附成功那一刻就跳，不等它的揭晓动画 |
+| 每格揭晓 | 6 格**全部**走「画笔涂色」（`brushReveal`）：圆头笔从左上角斜着来回刷到右下角，**刷过的地方才显示修复图**（没刷到的仍是底下那张破损图），刷完才收破损图。`stickerApply` / `circleReveal` 六格全被清空，`revealAnim` 都配着但走不到 |
 | 每格揭角 | 6 格都勾了「本格单独配揭角」（`peelOverride = true`） |
 | 失败路 | **走不到**：6 格的 `altView` / `requires` 全空 ⇒ `REPAIR_FAILED` 永不抛 |
-| 结束界面 | **走不到**：`winCount = 4 < 6` ⇒ `END_SHOW` 到不了（`CtaController` 整套代码与场景都还在） |
-| MCP 端口 | **每轮都可能变**，本轮是 `24148`（`tools/exec.mjs` 默认 20168，要 `MCP_PORT=24148` 覆盖） |
+| 结束界面 | **走得到了**（2026-10-14 起）：`winCount = 6` ⇒ 最后一格的 `PIECE_SHOWN` 到了之后 `SceneBgSwap` 扩散完抛 `END_SHOW`。⚠️ 但它**排在跳商店之后**（第 6 格吸附的下一帧就 `mraid.open`），玩家从商店回来才会看到 —— 而 `End/bg` 还是**纯白 4×4**，那一屏现在是白底 |
+| 音频 | 5 条（`AudioManager@Canvas`，见「音频配置」）：空灵背景 + 女主哭泣两条常驻、音阶 1-6 顺序列表、胜利风铃、三颗 CTA 按下去那一声 |
+| MCP 端口 | **每轮都可能变**，本轮是 `29394`（`tools/exec.mjs` 默认 20168，要 `MCP_PORT=29394` 覆盖；公式见 `extensions/funplay-cocos-mcp/lib/config.js`） |
 
 **已经退场的表现（代码还在、场景里一个都没配）**——动手做「表现」之前先认一下，
 别照 [docs/WORKLOG.md](docs/WORKLOG.md) 里那些历史小节以为它还在跑：
@@ -47,13 +48,15 @@ ANALYTICS.md 自成一个文件，它内部的「§N」指它自己，写明 `CL
 | 胶带揭晓 / 稻草人序列帧 | `TapeReveal.ts`、`FrameLoop.ts` **已从代码里删除**，`TAPE_REVEAL` / `WINDOW_REPAIRED` 两个事件也已不在 `GameEvent` |
 | 待机动作 `IdleMotion` | 组件在代码里，场景里没有实例（没有可挂的节点了） |
 | 圆形扩散 / 序列帧揭晓 / 扫光 | 组件都还挂在 `EffectLayer` 上，但**开关全关**且 6 格都没配 ⇒ 不演（见上表开关） |
+| 贴纸贴平（`stickerApply`） | 组件还挂在 `EffectLayer` 上、开关也开着，但 **6 格全被清空**（2026-10-14 改走画笔涂色），连它的收尾脉冲一并停用。想退回就重跑 `tools/js/mount-sticker-apply.js`（它会反过来清掉画笔） |
 
 ### 功能开关当前状态（§15）
 
 | 开关 | 值 | 影响 |
 |---|---|---|
-| `stickerPeel` | 开 | 拿起碎片时揭角 |
-| `stickerApply` | 开 | 修好时贴平 —— **这是现在唯一的单块揭晓** |
+| `stickerPeel` | 开 | 拿起碎片时揭角（接的是「揭角 → 涂色」） |
+| `stickerApply` | 开 | ⚠️ **六格都不再配它了**（2026-10-14 改走画笔涂色）。组件与开关都留着，指回去就能复位 |
+| `brushReveal` | 开 | 修好时画笔涂色 —— **这是现在唯一的单块揭晓** |
 | `progress` / `audio` | 开 | |
 | `pieceGlow` | **关** | 拖起来没有白边发光 |
 | `trail` | **关** | 没有拖尾光点 |
@@ -62,14 +65,34 @@ ANALYTICS.md 自成一个文件，它内部的「§N」指它自己，写明 `CL
 | `sweepOnRepair` / `sweepOnComplete` | **关** | 单块 / 总修复都不扫光 |
 | `guide` | **关** | ⚠️ 空闲引导不显示、不注册监听 —— 见下面第 2 条风险 |
 
-### ⚠️ 三条待确认（都不是代码问题，是配置决策）
+### 音频配置（`AudioManager@Canvas`，§16）
+
+| 激活事件 | 音效 | 音量 | 渐入渐出 | 间隔 | 干什么的 |
+|---|---|---|---|---|---|
+| `NONE`（常驻） | `空灵背景.MP3` | 0.6 | 0.3 / 0.3 | 0 | 无缝循环的背景垫乐 |
+| `PIECE_SNAP_SUCCESS` | **顺序列表**：音阶 1-6 | 1 | 0 / 0 | 0 | **每修好一块换下一个音**，放完一轮回到音阶 1 |
+| `NONE`（常驻） | `女主哭泣.MP3` | 0.8 | 1 / 1 | **3** | 哭一段（末尾 1 秒淡下去）→ 静 3 秒 → 再哭 |
+| `LEVEL_COMPLETE` | `风铃.MP3` | 1 | 0 / 0 | 0 | 全部修完那一下的胜利音 |
+| `BUTTON_DOWN` | `button_down.mp3` | 1 | 0 / 0 | 0 | **按下按钮那一瞬**（`GameCta` / `End/btn` / `Fail/btn` 三颗） |
+
+- 后两条一起放：垫乐一直在，哭声一遍一遍插进来。
+- 风铃那条**不随关场停全部停**（`AudioManager.POST_OVER`）—— 它和跳商店同拍，
+  被 `CTA_CLICK` 掐掉就等于没响过。按压音效同理，松手就是 `CTA_CLICK`。
+- **按压音效不走 EventBus**：`BUTTON_DOWN` 是 `AudioEvent` 里唯一的假事件，它听的是
+  `AudioManager.buttons` 那几个节点的 `TOUCH_START`。不用 `CTA_CLICK` 是因为那是**松手**才发，
+  而 `openStore()` 排在它**前面**（`GameCta.onClick` 第一句）—— 等它响时商店已经在开了。
+  **加按钮就往 `buttons` 里拖一个节点。**
+- 改配置在 Inspector 里加条目拖资源即可；重新接一遍走 `node tools/exec.mjs scene tools/js/mount-audio.js`（幂等）。
+
+### ⚠️ 两条待确认（都不是代码问题，是配置决策）
 
 1. **观感只剩「揭角 → 贴平」**：上面连着的 6 个开关是关的（glow / trail / revealOnRepair / circleReveal / sweep×2），
    修好时既不扫光也不播序列帧。**是有意收敛还是一轮轮改下来忘了开**，需要确认。
 2. **`FeatureFlags.guide = false` 让 §8.1 第 6 条没有兜底**：空闲引导是「无用户交互时不得超时」目前**唯一**的兜底
    （见 §8.1 对照表第 6 行）。关着就回到「玩家全程不碰屏幕 → 画面完全静止」。交审前必须确认。
-3. **`EndgameCta.winCount = 4`，而总共 6 个槽位**：玩家永远修不满整张图，第 4 格**吸附上就跳商店**。
-   进度条停在 4/6。是有意控时长还是漏改，需要确认。
+
+**已了结**：~~`winCount = 4` 修不满整张图~~ —— 2026-10-14 改成 `winCount = 6`（全部修完才跳），
+顺带把 `LEVEL_COMPLETE`（胜利风铃要绑的总修复事件）打通。见 [docs/WORKLOG.md](docs/WORKLOG.md)「音频：音阶序列 + 带间隔的常驻循环」。
 
 ### 美术现状与空壳（2026-10-12 核实）
 
@@ -134,9 +157,11 @@ node tools/mcp.mjs <工具名> [argsJson]
 2. 拖动碎片靠近目标缺口，**进入吸附半径即自动吸附**（不需要松手，也不需要精确对位）。
 3. 未进入任何正确缺口范围就放开（或拖到错误位置）→ 碎片 **tween 弹回碎片池原位**。
 4. 每次成功吸附触发**单块修复事件**：该缺口位置由「修复前」切换到「修复后」，播放局部反馈。
-5. **修满 `winCount` 格**（不是全部）→ 触发**终局**：抛 `GAME_OVER` 冻结玩法并跳商店。
+5. **修满 `winCount` 格** → 触发**终局**：抛 `GAME_OVER` 冻结玩法并跳商店。
    **跳转就在这一格吸附成功的那一下**，不等它的揭晓动画（细节见 [docs/WORKLOG.md](docs/WORKLOG.md) 的「终局跳转」）。
-   若 `winCount = 0` 则退回老路：全部修完 → 总修复事件 + 进度满 + 结束界面。
+   当前 `winCount = 6` = 槽位总数，也就是**全部修完**才跳（修满那一刻顺带抛总修复事件
+   `LEVEL_COMPLETE`，胜利风铃绑的就是它）。`winCount < 槽位数` 时是「修够几格就走」，
+   `winCount = 0` 则退回更老的一条路：全部修完 → 总修复事件 + 进度满 + 结束界面。
 6. 碎片数量 = 缺口数量，**不打乱顺序**（固定排列，按 `pieceId` 排序，方便调试与美术预览）。
 7. 有**空闲引导**：玩家一段时间不操作，就演一遍「手指拖着半透明副本，把池里最前面那块碎片送到它的缺口」。
    碰一下屏幕立刻收掉，再空闲又演一遍，通关才停。见 WORKLOG「空闲引导」。
@@ -251,6 +276,7 @@ assets/scripts/
 │   ├── RepairSweep.ts       修复扫光（单块 / 总修复）
 │   ├── RepairReveal.ts      修复揭晓：序列帧 + 从小到大放大
 │   ├── CircleReveal.ts      圆形扩散揭晓（bg-reveal 材质）
+│   ├── BrushReveal.ts       画笔涂色揭晓（brush-reveal 材质）：圆头笔从左上角斜着来回刷到右下角，刷过的地方才显示修复图
 │   ├── StickerPeel.ts       贴纸揭角：拿起碎片时一角折起来露出背面。导出 `peelLine()` 与 StickerApply 共用
 │   ├── StickerApply.ts      贴纸贴平：修好时修复图整张出现、一角翘着，再推向对边按平；推完还带一下收尾脉冲（缩小淡出 → 放大淡入）
 │   └── IdleMotion.ts        通用循环待机动作（以编辑器里摆的位置为基准走正弦）
@@ -267,7 +293,7 @@ assets/scripts/
 │   ├── GameCta.ts           游戏中常驻的下载按钮
 │   └── PlayableAnalytics.ts AppLovin 试玩埋点，见 §17
 ├── audio/
-│   └── AudioManager.ts      音频总控：配置列表（激活事件 / 音效 / 音量 / 渐入渐出 / 结束事件）
+│   └── AudioManager.ts      音频总控：配置列表（激活事件 / 音效或顺序列表 / 音量 / 渐入渐出 / 循环间隔 / 结束事件）+ 按压音效按钮
 └── bootstrap/
     └── GameEntry.ts         唯一入口，负责初始化与模块装配
 ```
@@ -317,6 +343,9 @@ assets/scripts/
 
 **事件与发射方一律不动**：接埋点（§17）、加音效（规则见 [docs/WORKLOG.md](docs/WORKLOG.md) 的「音频：配置列表 + 常驻音」）、加表现，都只在**监听侧**加，
 不改发射方，也不新增事件名到业务代码里。§15 的开关表里不出现事件名。
+
+（`AudioManager` 的下拉框里有**一个不是总线事件的选项** `BUTTON_DOWN` —— 它听的是
+`AudioManager.buttons` 那几个按钮节点的 `TOUCH_START`，没进这张表、也没进 `GameEvent`。见「音频配置」。）
 
 ## 6. 数据配置（换美术不改代码）
 
@@ -388,7 +417,8 @@ assets/scripts/
     ⚠️ **`sv.view` 是 `UITransform` 不是节点**（`ScrollView` 的 getter 取的是 `content.parent` 的 UITransform），
     位置要走 `sv.view.node` —— 直接 `sv.view.setPosition()` 会抛，`sv.view.position` 读到的是 `undefined`。
   - **碎片不跟着放大**：池里那个尺寸横竖屏同一个值，拿起来时才按 `carryScaleOf` 长到缺口那么大。
-    间隔同理：`PiecePool.fitSpacing` 只在竖屏那一条（`Layout.type == HORIZONTAL`）算。
+    间隔同理：`content` 上那个 `Layout.spacingX` 是**手配的定值**（碎片池不再按可视宽度现算间距），
+    横竖屏共用同一个值 —— 竖栏的 `spacingY` 是 `LandscapeLayout` 转屏时现读它填的。
   - **玩法逻辑一行没碰**：缺口框 / 吸附半径 / 拿起倍率全按世界坐标现算，放大对吸附是透明的。
   - **安全区**：`maxRailHeight` 压到 880，竖栏居中后顶端最高 +440，正好不伸进右上角关闭按钮那个
     200×200（设计单位）安全区。
@@ -407,9 +437,17 @@ assets/scripts/
      **inset 是可调项**：改 `.meta` → 重新导入 → 看 Game View。
      ⚠️ 当前 inset 是全 0（见现状速查「三处空壳」），等于没切。
   2. `GameLayer` / `PiecePoolLayer` / `UILayer/ProgressLayer` —— 三处**一条边都不贴**，尺寸钉死
-     （580×748.559 / 720×300 / 460×90）。
+     （671.45×840 / 720×300 / 460×90）。
+     `GameLayer` 的尺寸**跟着拼图区底图的比例走**：底图 `1010/背景/捉奸黑白.png` 是 976×1221，
+     框高 840 时框宽 = `840 × 976/1221 = 671.45`。`Scene_BG` / `完成背景` 也钉这个数
+     （后者是 `SceneBgSwap.revealView`，要求同尺寸）。**换一张比例的底图，这三个数和
+     `mount-adapt.js` 里那个 `unanchor(…, 671.45, 840)` 要一起改** —— 否则 `Scene_BG` 会被横向压扁。
   - ⚠️ 每拆掉一条对齐边，Widget 都会把节点放回**场景里存的 `contentSize`** 并把中心留住 ——
     尺寸必须显式再钉一次。
+  - ⚠️ **「四边对齐 + `AlignMode.ALWAYS`」只在这一层的父节点尺寸不变的场合才安全**：父节点尺寸一变，
+    编辑器按旧尺寸反推 inset、`ALWAYS` 再按新 inset 重排，两者互相喂，节点会一帧一帧地长
+    （实测 `Scene_BG` 566 → 881 → 986、`完成背景` 986 → 1932）。所以 `Scene_BG` / `完成背景`
+    也按上面那套记号钉住（`alignFlags = 0`）。来龙去脉见 WORKLOG「拼图框跟着底图比例走…」。
   - 三处的 `Widget` 组件**留着**，只是勾全空 —— 这是「故意不对齐」的记号，别当成没用的组件删掉或者重新勾上
     （勾回去就是长屏偏下）。`verify-scene.js` 的 `checkAdapt` 会拦住。
   - ⚠️ WidgetManager 的整树重排要等下一次 `AFTER_UPDATE`，编辑模式不一定跑得到，所以接线脚本末尾
@@ -632,6 +670,18 @@ build/playable.google.zip   Google    同一个 HTML 套个 zip 壳，CTA 走 Ex
 ## 10. 工作方式约定
 
 - **不截图、不识别图片**：禁止任何耗费 token 的视觉分析操作。
+- **动手前先搜一轮现成方案，别重复造轮子** —— 不管是**表现 / 效果**（拖尾、揭晓、扫光、涂色、贴纸、
+  屏震、缓动、材质刷）还是**工程 / 接入问题**（构建打包、体积压缩、引擎模块裁剪、MRAID / 各平台适配、
+  引擎自身的坑）：**先翻本仓库 [docs/WORKLOG.md](docs/WORKLOG.md)（同一件事很可能已经踩过），再上网搜**
+  —— 官方文档 / 官方示例仓库 / Cocos 论坛 / GitHub / Stack Overflow，关键词 `cocos creator 3.x` + 问题点。
+  **先找，确实没有再自己动手。**
+  - 抄回来**先核对引擎版本**：本项目 3.8.8，3.7 以前的老写法（`cc.` 命名空间、旧材质 / effect 格式）
+    直接对不上，白改一轮。
+  - 优先级 **引擎自带 > 官方示例 > 社区实现 > 自研**。现在的 `BrushReveal` 走的就是
+    「引擎的 `EffectAsset` + 材质刷」，不是自己撸渲染 —— 这是这类需求的默认姿势。
+  - 用了外部方案 / 看过但否掉了，都在 [docs/WORKLOG.md](docs/WORKLOG.md) 对应小节记一行
+    **来源链接 + 为什么没用 / 改了什么**，免得下一轮又搜一遍同一件事。
+  - ⚠️ 这条与上面「不截图」不冲突：禁的是视觉分析，**查文档、搜代码是允许且鼓励的**。
 - **优先 MCP**：编辑器内的场景搭建、节点创建、组件挂载、预制体操作全部走 `funplay_cocos` MCP。
 - **零冗余代码**：不写解释性注释（除非逻辑非直观）、不写防御性判空、不写用不到的分支与兜底、
   不预留"以后可能用到"的接口。
@@ -715,6 +765,7 @@ build/playable.google.zip   Google    同一个 HTML 套个 zip 壳，CTA 走 Ex
 | `revealOnRepair` | 修好时不再播序列帧、也不放大，修复图照旧瞬间出现 | `gameplay/RepairReveal.ts` |
 | `stickerApply` | 配了「贴纸贴平揭晓」的槽位不再演那一下 —— 破损图收掉、修复图直接出现 | `gameplay/StickerApply.ts` |
 | `circleReveal` | 配了「圆形扩散揭晓」的槽位退回「序列帧 + 放大」 | `gameplay/CircleReveal.ts` |
+| `brushReveal` | 配了「画笔涂色揭晓」的槽位不再刷 —— 破损图当场收掉、修复图直接出现 | `gameplay/BrushReveal.ts` |
 | `sweepOnRepair` | 单块吸附成功不再扫光 | `gameplay/RepairSweep.ts` |
 | `sweepOnComplete` | 全部修完不再扫光 | `gameplay/RepairSweep.ts` |
 | `guide` | 空闲引导整棵 `GuideRoot` 藏起来，也不注册任何监听（含全局 `input` 那条） | `ui/GuideController.ts` |
@@ -768,16 +819,18 @@ build/playable.google.zip   Google    同一个 HTML 套个 zip 壳，CTA 走 Ex
 | † 单块·总修复各三项 | `repairTime` … `completeFlash` | `RepairSweep` @ `EffectLayer` |
 | † 序列帧 | `frames` / `frameInterval` / `sizeRatio` / `revealTime` | `RepairReveal` @ `EffectLayer` |
 | † 圆形扩散：扩散时长 | `revealTime` / `feather` / `revealEffect` | `CircleReveal` @ `EffectLayer`（每格在 `PieceSlot.circleReveal` 上选） |
+| 画笔涂色：材质 / 涂完时长 / 笔触行数 / 笔触半径 / 笔触羽化 | `brushEffect` / `revealTime` / `rows` / `radius` / `feather` | `BrushReveal` @ `EffectLayer`（每格在 `PieceSlot.brushReveal` 上选）。⚠️ **半径得 ≥ 1.45÷行数**，否则相邻笔迹之间留没涂到的缝（5 笔时 0.29，现在填 0.3）；行数越少笔头越粗，「来回」的痕迹越糊 |
 | 拿起放大时长 | `pickScaleTime` | `DragController` @ `GameLayer` |
 | 弹回原位时长 | `returnTime` | `PiecePool` @ `PiecePoolLayer` |
 | 自动补位 / 补位滑动时长 | `reflow` / `reflowTime` | 同上（`reflow` 关掉 = 一块碎片被用掉后**空位留在原地**、后面的碎片不动；开着才谈得上滑多久，所以关掉时 `reflowTime` 不起作用） |
 | 每屏碎片数 / 换批淡入时长 | `batchSize` / `batchFadeTime` | 同上（一屏只摆这么多块，这一批用光才补下一批；`batchSize` 填 0 = 整关一次全摆出来） |
+| 碎片间距 | 无 —— 就是 `content` 上 `Layout` 的 `spacingX`（现在是 **40**） | 改完不用动代码。**它是个定值**，碎片宽窄不一，行宽不再等于可视宽（见下面那条坑） |
 | 吸附半径 / 吸附半径比 | `snapRadius` / `snapRadiusRatio` | `PieceSlot` @ `Slot_01` |
 | † 换节点延迟 | `swapDelay` / `swapFadeTime` | `PieceSlot`（当前没有槽位用得上） |
 | 进度条填充缓动时长 | `fillTime` | `ProgressController` @ `UILayer` |
 | 进度条外观（底色 / 透明度 / 尺寸） | 无 —— 就是 `进度条底` / `进度条` 两个节点上 `Sprite` 的 color / `UITransform` | 改完不用动代码 |
 | 结束界面入场（背景淡入 / 下落时长 / 出发高度 / 按钮间隔 / 弹跳次数 / 首跳高度 / 衰减 / 首跳时长 / 压扁幅度 / 压扁时长） | `bgFadeTime` / `dropTime` / `dropMargin` / `stagger` / `bounces` / `bounceHeight` / `bounceDecay` / `bounceTime` / `squash` / `squashTime` | `CtaController` @ `CtaLayer` |
-| 终局跳转（修好几个就跳商店 / 失败界面淡入时长） | `winCount` / `failFadeTime` | `EndgameCta` @ `UILayer/CtaLayer`（`winCount` 填 0 退回「全部修完出结束界面」那条老路；修满那一格**吸附成功当刻**就跳，失败路才等这一格演完再弹再跳） |
+| 终局跳转（修好几个就跳商店 / 失败界面淡入时长） | `winCount` / `failFadeTime` | `EndgameCta` @ `UILayer/CtaLayer`（`winCount` **现在是 6 = 全部修完**，填 0 退回「全部修完出结束界面」那条老路；修满那一格**吸附成功当刻**就跳，失败路才等这一格演完再弹再跳） |
 | 引导节奏 + 副本 / 手指外观（空闲延迟 / 循环间隔 / 点击提示 / 点击下沉 / 拖动时长 / 淡入淡出 / 副本透明度 / 手指偏移） | `idleDelay` / `loopGap` / `tapTime` / `tapDepth` / `moveTime` / `fadeTime` / `ghostOpacity` / `fingerOffset` | `GuideController` @ `UILayer` |
 | † 完成背景扩散时长 | `revealTime` / `feather` | `SceneBgSwap` @ `GameLayer/Scene_BG` |
 | † 待机动作：左右摆幅 / 上下摆幅 / 横向拉伸幅度 / 纵向拉伸幅度 / 一次循环时长 / 起始相位 | `swayX` / `swayY` / `stretchX` / `stretchY` / `period` / `phase` | `IdleMotion` @ `GameLayer/Scene_BG/马桶隐藏节点/气体大` 与 `/气体小` |
@@ -785,16 +838,20 @@ build/playable.google.zip   Google    同一个 HTML 套个 zip 壳，CTA 走 Ex
 | † 扫地：物品父节点 / 中点微调 / 挪动时长 / 摆动角度 / 来回次数 / 单程时长 / 摆动时右移距离 / 物品渐隐间隔 / 物品渐隐时长 | `items` / `offset` / `moveTime` / `sweepAngle` / `sweepCycles` / `sweepTime` / `sweepMoveX` / `gap` / `fadeTime` | `BroomSweep` @ `Slot_03` |
 | † 喷瓶：两张贴图 / 气体节点 / 摇晃次数 / 摇晃角度 / 单程时长 / 起始高度 / 下落时长 / 气体渐隐时长 / 气体先后间隔 / 喷雾图缩放 / 喷雾图偏移 | `noMistFrame` / `mistFrame` / `gases` / `shakeCount` / `shakeAngle` / `shakeTime` / `mistRise` / `mistDropTime` / `gasFadeTime` / `gasStagger` / `mistScale` / `mistOffset` | `SprayAction` @ `Slot_05`。两个图口与另外七个调参由 `mount-spray-action.js` 写；`mistScale` / `mistOffset` 是**对齐两个瓶子用的量**，换美术得重新量 |
 | † 地上脏水：失败后延迟 / 渐显时长 | `delay` / `revealTime` | `GroundWater` @ `Scene_BG/地上脏水`。**方向不在这儿**，是节点 Sprite 上的 FILLED/VERTICAL/`fillStart = 1` |
-| 音频配置列表（激活事件 / 音效 / 音量 / 渐入 / 渐出 / 结束事件）+ 总音量 | `cues` / `volume` | `AudioManager` @ `Canvas` |
+| 音频配置列表（激活事件 / 音效 / **顺序音效列表** / 音量 / 渐入 / 渐出 / **循环间隔** / 结束事件）+ 总音量 | `cues` / `volume` | `AudioManager` @ `Canvas`。顺序列表非空时按「每触发一次换下一条」播（音阶 1-6），那一条的「音效」作废；循环间隔只有常驻条用得上（遍与遍之间的静默，0 = 引擎的无限循环） |
+| 按压音效按钮 | `buttons`（节点数组） | 同上。「激活事件」选 `BUTTON_DOWN` 的那一条听的就是它们的 `TOUCH_START` —— **加按钮就往这儿拖一个节点**（现在三颗 CTA：`GameCta` / `End/btn` / `Fail/btn`） |
 | 横屏放大倍率 / 拼图区与进度条间距 / 两栏间距 / 竖栏最大高度 | `scale` / `columnGap` / `railGap` / `maxRailHeight` | `LandscapeLayout` @ `Canvas`（§7.1） |
 | 横屏底图旋转（度）/ 缩放系数 | `poolBgRotate` / `poolBgScale` | 同上（`poolBgScale = 1` 即等比盖住竖栏） |
 | 常驻按钮：呼吸放大比 / 呼吸单程时长 | `breathScale` / `breathTime` | `GameCta` @ `Canvas/GameCta`。**位置不在这儿**（竖屏是同一节点上的 Widget，横屏是 `LandscapeLayout.cta` 口）。**外观也不在这儿**：底色 / 文案 / 字号都在 `Bg` / `Text` 上 |
 
 三条踩过的坑：
 
-- **碎片池的间距不在上表里**：落点就是 `content` 上那个 `Layout` 自己的 `spacingX` 与四边 padding。
-  ⚠️ `spacingX` **由 `PiecePool.fitSpacing` 在建池子那一下按可视宽度现算并写回**，在 Inspector 里改会被覆盖 ——
-  **只有四边 padding 是你可以改的**。`spacingY` 是横屏竖栏用的，由 `LandscapeLayout` 转屏时现读 `spacingX` 填。
+- **碎片间距早就改成手配的定值了**（2026-10-14）：原来 `PiecePool.fitSpacing` 会在建池子那一下
+  **按可视宽度现算**并写回 `content` 的 `spacingX`，那样缝会跟着每一批碎片的宽窄变（两批实测 82.3 / 42.1）。
+  现在那套整个删掉了，`spacingX` 就是你在 Inspector 里填的数（场景里 **40**），谁都不覆盖它。
+  ⚠️ **行宽不再等于可视宽**：最宽的一批（451.7 + 两个缝 + 四边 padding）刚好卡进 583.893，
+  窄的那一批右边会空出来（`ScrollView` 不居中内容，碎片靠左）。调大间距就会把行推出可视区、要滚才看得到。
+  四边 padding 与 `spacingX` 一样都在 Inspector 里改；`spacingY` 是横屏竖栏用的，由 `LandscapeLayout` 转屏时现读 `spacingX` 填。
 - **亮边的 5 个参数挂在 `PieceFactory` 上，不在 `PieceGlow` 上**：碎片是运行时建的节点，场景里没有实例。
   `GlowConfig` 是个 `@ccclass` 数据类，Inspector 里显示成可折叠分组。
 - **新增 `@property` 后编辑器要刷一次资源库**（MCP `refresh_assets`）才会出现在已有组件实例的 Inspector 上：
@@ -815,8 +872,9 @@ AppLovin 要求沉浸式试玩上报内部关键节点，用来做投放优化�
 - 映射：`LEVEL_BUILT → DISPLAYED`、`PIECE_PICK → CHALLENGE_STARTED`、
   `REPAIR_PROGRESS → CHALLENGE_PASS_25/50/75`、`GAME_OVER → CHALLENGE_SOLVED`、
   `REPAIR_FAILED → CHALLENGE_FAILED`、`CTA_SHOW → ENDCARD_SHOWN`、`CTA_CLICK → CTA_CLICKED`。
-- **里程碑的分母是终局线 `EndgameCta.winCount`**（不是槽位总数）—— 否则玩家修到第 4 格就被跳走，
-  后两档和 `SOLVED` 永远不出现。
+- **里程碑的分母是终局线 `EndgameCta.winCount`**（不是槽位总数）—— 否则玩家在终局线之前就被跳走，
+  后两档和 `SOLVED` 永远不出现。`winCount` 现在 **6 = 槽位数**，三档落在 2 / 3 / 5 块上，
+  `SOLVED` 落在第 6 块（`GAME_OVER` 与 `LEVEL_COMPLETE` 同一拍）。
 - **不接** `LOADING` / `LOADED`（没有 loading 屏）、`CHALLENGE_RETRY`（没有重试概念）。
 - **不给开关**：埋点是平台要求，不是可选表现（§15「合规项不进开关表」）。
 

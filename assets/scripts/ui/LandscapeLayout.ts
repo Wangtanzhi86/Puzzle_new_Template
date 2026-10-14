@@ -128,9 +128,9 @@ export class LandscapeLayout extends Component {
         // 碎片池：底部横向条带 → 右侧竖栏
         layout.type = Layout.Type.VERTICAL;
         layout.alignVertical = true;   // 这一向下把 x 压平（见 onLoad 那段）
-        // 竖栏的间距沿用横排那个 —— 它现在是 `PiecePool.fitSpacing` 按可视宽度现算的（比场景里存的 24 大得多，
-        // `onLoad` 快照里那份早过期了），所以**现读**，不从快照取。横排那个 `spacingX` 一个字不动
-        //（VERTICAL 不看它），转回竖屏时天然还是对的，`restorePortrait` 不用管。
+        // 竖栏的间距沿用横排那个 —— 它是手配的（`content` 的 Layout 上那个 `spacingX`），所以**现读**，
+        // 不从快照取。横排那个 `spacingX` 一个字不动（VERTICAL 不看它），
+        // 转回竖屏时天然还是对的，`restorePortrait` 不用管。
         layout.spacingY = layout.spacingX;
         layout.paddingLeft = p.padL;
         layout.paddingRight = p.padR;

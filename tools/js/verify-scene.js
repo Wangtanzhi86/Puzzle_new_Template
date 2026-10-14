@@ -23,6 +23,7 @@ const wanted = {
     RepairSweep: ['sweepEffect'],
     RepairReveal: [],
     CircleReveal: ['revealEffect'],
+    BrushReveal: ['brushEffect'],
     StickerApply: ['frontEffect', 'backEffect'],
     SceneBgSwap: ['revealEffect', 'revealView'],
     IdleMotion: [],
@@ -77,12 +78,19 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
     }
     for (const c of n.children) checkAlt(c);
 })(canvas);
-// 两种「整格接管」的揭晓只能填一个：贴纸贴平 / 圆形扩散都是往同一张修复图的 Sprite 上挂材质，
-// 都填了的话只有排在前面那个（贴纸）生效，另一个是配了不演的死配置
+// 三种「整格接管」的揭晓只能填一个：贴纸贴平 / 画笔涂色 / 圆形扩散都是往同一张修复图的 Sprite 上
+// 挂材质，都填了的话只有排在前面那个生效（`repair()` 里的顺序就是下面这个顺序），后面全是配了不演的死配置
 (function checkReveal(n) {
     const slot = n.getComponent('PieceSlot');
-    if (slot && slot.stickerApply && slot.circleReveal) {
-        out.missing.push('PieceSlot@' + n.name + ' 贴纸贴平 和 圆形扩散 都填了，只有贴纸会演');
+    if (slot) {
+        const set = [
+            ['贴纸贴平', slot.stickerApply],
+            ['画笔涂色', slot.brushReveal],
+            ['圆形扩散', slot.circleReveal],
+        ].filter((f) => f[1]);
+        if (set.length > 1) {
+            out.missing.push('PieceSlot@' + n.name + ' ' + set.map((f) => f[0]).join(' + ') + ' 都填了，只有「' + set[0][0] + '」会演');
+        }
     }
     for (const c of n.children) checkReveal(c);
 })(canvas);
@@ -94,16 +102,20 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
     }
     for (const c of n.children) checkGuide(c);
 })(canvas);
-// 音频配置：没拖音效的条目静默不响；激活 / 结束事件撞一起就是刚响就停
+// 音频配置：没拖音效的条目静默不响（顺序列表算有音效）；激活 / 结束事件撞一起就是刚响就停；
+// 「按下按钮」那条听的是 `buttons` 里那些节点的 TOUCH_START，列表空着就是配了不响
 (function checkAudio(n) {
     const a = n.getComponent('AudioManager');
     if (a) {
         a.cues.forEach((c, i) => {
-            if (!c.clip) out.missing.push('AudioManager@' + n.name + ' 第' + (i + 1) + '条没拖音效');
+            if (!c.clip && !c.sequence.length) out.missing.push('AudioManager@' + n.name + ' 第' + (i + 1) + '条既没拖音效也没配顺序列表');
             else if (c.event !== 'NONE' && c.event === c.stopEvent) {
                 out.missing.push('AudioManager@' + n.name + ' 第' + (i + 1) + '条激活 / 结束事件是同一个，放了就停');
             }
         });
+        if (a.cues.some((c) => c.event === 'BUTTON_DOWN') && !a.buttons.length) {
+            out.missing.push('AudioManager@' + n.name + ' 配了「按下按钮」的音效，但「按压音效按钮」一个都没拖');
+        }
     }
     for (const c of n.children) checkAudio(c);
 })(canvas);
@@ -283,6 +295,16 @@ function checkButton(path, name) {
         }
         for (const c of n.children) walk(c);
     })(canvas);
+
+    // 六格都改走别的揭晓（画笔涂色之类）之后这份抄写值就没人读了，别再劝人重跑 sticker 的接线脚本 ——
+    // 跑了它会反过来把槽位从别的揭晓手里抢回来
+    let used = false;
+    (function look(n) {
+        const s = n.getComponent('PieceSlot');
+        if (s && s.stickerApply) used = true;
+        for (const c of n.children) look(c);
+    })(canvas);
+    if (!used) return;
 
     const factory = canvas.getChildByPath('PiecePoolLayer/ScrollView').getComponent('PieceFactory');
     const apply = canvas.getChildByName('EffectLayer').getComponent('StickerApply');

@@ -1,0 +1,157 @@
+// 「画笔涂色」揭晓：一块圆形笔头沿斜向蛇形路径刷过整块碎片，刷到的地方才显示修复图，
+// 没刷到的地方 alpha = 0，露出垫在底下的破损图（和 CircleReveal 一个套路，只是把圆换成了笔迹）。
+//
+// 路径算在「碎片自己的像素坐标」里 —— 横轴按长宽比 A = 宽÷高 拉长、纵轴 1 = 碎片高、原点在左上角。
+// 笔头在这套坐标里是正圆（和 bg-reveal 用世界坐标算半径是同一个理由：直接拿 uv 算，
+// 非正方形的碎片会把圆压成椭圆）。
+//
+//   第 i 笔是 u + t = d 这条 45° 斜线的一段（t 从顶边往下量），d = (i + 0.5) * 2 / K：
+//     d ≤ 1 —— 两端落在「上边」和「左边」；  d ≥ 1 —— 落在「右边」和「下边」。
+//     偶数笔从上边划到左边，奇数笔从左边划回上边。第一笔起在左上角、最后一笔收在右下角，
+//     一笔一笔推过去，整块就涂满了（半径只要盖得住笔距就不会留白，见 BrushReveal 的 tooltip）。
+//
+// 判定就是老实的「点到已经刷过那一段笔迹的距离 ≤ 笔触半径」——圆头和软边都是这一句出来的，
+// 笔尖前面没刷到的部分因为被截断（tau）而不算数。
+//
+// brushParams / brushEdge 由 CPU 按本次尺寸和进度塞进来。
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: brush-reveal-vs:vert
+      frag: brush-reveal-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        brushParams: { value: [1.0, 5.0, 0.28, 0.0] }
+        brushEdge: { value: [0.25, 0.0, 0.0, 0.0] }
+}%
+
+CCProgram brush-reveal-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+
+    return pos;
+  }
+}%
+
+CCProgram brush-reveal-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+
+  in vec4 color;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  #endif
+
+  uniform BrushReveal {
+    vec4 brushParams;   // x 长宽比 A = 宽÷高 / y 笔触行数 / z 笔触半径（相对碎片高）/ w 进度 0…1
+    vec4 brushEdge;     // x 笔触羽化（相对笔触半径）
+  };
+
+  // 循环上界必须是常量，所以笔数在这儿封顶。CPU 侧同名的上限见 BrushReveal.rows，改要两边一起改
+  #define BRUSH_MAX_ROWS 12
+
+  float distToSeg (vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a;
+    vec2 ba = b - a;
+    float hh = dot(ba, ba);
+    float tt = hh > 0.0 ? clamp(dot(pa, ba) / hh, 0.0, 1.0) : 0.0;
+    return length(pa - ba * tt);
+  }
+
+  vec4 frag () {
+    #if USE_TEXTURE
+      vec4 o = CCSampleWithAlphaSeparated(cc_spriteTexture, uv0);
+
+      float k = max(brushParams.y, 1.0);
+      float dd = 2.0 / k;
+      float r = brushParams.z;
+      float diag = sqrt(brushParams.x * brushParams.x + 1.0);
+      // 原点挪到左上角：uv 的 y 是自下而上的
+      vec2 p = vec2(uv0.x * brushParams.x, 1.0 - uv0.y);
+
+      // 整条路径多长（各笔长度之和）：进度是 0…1，得先有总长才知道刷到哪儿了
+      float total = 0.0;
+      for (int i = 0; i < BRUSH_MAX_ROWS; i++) {
+        if (float(i) < k) {
+          float d = (float(i) + 0.5) * dd;
+          total += min(d, 2.0 - d) * diag;
+        }
+      }
+
+      float done = brushParams.w * total;
+      float acc = 0.0;
+      float best = 1e9;
+      for (int i = 0; i < BRUSH_MAX_ROWS; i++) {
+        // 用 if 包住、不在循环里 break：老的 WebGL1 对「带 break 的循环」实现不一
+        if (float(i) < k) {
+          float d = (float(i) + 0.5) * dd;
+          float h = min(d, 2.0 - d);
+          vec2 e1 = d <= 1.0 ? vec2(d, 0.0) : vec2(1.0, d - 1.0);
+          vec2 e2 = d <= 1.0 ? vec2(0.0, d) : vec2(d - 1.0, 1.0);
+          vec2 a = vec2(e1.x * brushParams.x, e1.y);
+          vec2 b = vec2(e2.x * brushParams.x, e2.y);
+          // 一笔一笔换个头：偶数笔 e1 → e2，奇数笔 e2 → e1 —— 笔头不用跨过整块跳到下一笔的起笔处
+          if (mod(float(i), 2.0) > 0.5) { vec2 sw = a; a = b; b = sw; }
+          float len = h * diag;
+          // 这一笔只刷到 tau 那么长，再多的地方笔还没到
+          float tau = clamp((done - acc) / max(len, 1e-5), 0.0, 1.0);
+          if (tau > 0.0) best = min(best, distToSeg(p, a, mix(a, b, tau)));
+          acc += len;
+        }
+      }
+
+      float fade = r * brushEdge.x;
+      float m = 1.0 - smoothstep(r - fade, r + fade, best);
+      return vec4(o.rgb, o.a * m * color.a);
+    #else
+      return vec4(0.0);
+    #endif
+  }
+}%
