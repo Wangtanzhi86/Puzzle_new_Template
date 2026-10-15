@@ -1,6 +1,7 @@
 import { _decorator, Button, Component, Node, Tween, UIOpacity, UITransform, Vec3, tween } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
+import { EndVideo } from './EndVideo';
 import { MraidBridge } from './MraidBridge';
 
 const { ccclass, property } = _decorator;
@@ -15,10 +16,12 @@ interface Drop {
 
 /**
  * 结束界面。`SceneBgSwap` 把底板换完之后抛 `END_SHOW`，这里才亮出 `End`：
+ * 配了结尾视频就先把它播完（或玩家点一下跳过），再
  * 背景淡入 → logo / 按钮从屏幕上方落下 → 落地弹两下（每下压扁再回弹）。
  *
  * 亮出来之前整棵子树 `active = false` —— AppLovin QA 专门查「看不见却能点到」。
- * 关音效不在这儿：`AudioManager` 自己也听 `END_SHOW`，免得两个模块互相持有引用。
+ * 关音效不在这儿：`AudioManager` 自己也听 `END_SHOW`，免得两个模块互相持有引用；
+ * 结尾视频起播和它同一拍，所以视频自己的音轨不会和游戏那盘音叠在一起。
  *
  * 那条路只在「修满全部槽位」时才走到。现在终局由 `EndgameCta` 接管（修满 `winCount` 个就跳商店），
  * 这里照旧留着 —— `EndgameCta.winCount` 填 0 就退回这套。
@@ -30,6 +33,7 @@ export class CtaController extends Component {
     @property({ type: Node, displayName: 'logo 节点' }) logo: Node = null;
     @property({ type: Button, displayName: '下载按钮' }) ctaButton: Button = null;
     @property({ type: MraidBridge, displayName: 'MRAID 桥' }) bridge: MraidBridge = null;
+    @property({ type: EndVideo, displayName: '结尾视频', tooltip: '留空 = 不演视频，`END_SHOW` 一到就亮结束界面' }) endVideo: EndVideo = null;
 
     @property({ displayName: '背景淡入时长（秒）', tooltip: '淡完这两个才开始往下落' }) bgFadeTime = 0.25;
     @property({ displayName: '下落时长（秒）' }) dropTime = 0.5;
@@ -51,16 +55,23 @@ export class CtaController extends Component {
     }
 
     protected onEnable(): void {
-        EventBus.on(GameEvent.END_SHOW, this.show, this);
+        EventBus.on(GameEvent.END_SHOW, this.onEndShow, this);
         if (this.ctaButton) this.ctaButton.node.on(Button.EventType.CLICK, this.onClick, this);
     }
 
     protected onDisable(): void {
-        EventBus.off(GameEvent.END_SHOW, this.show, this);
+        EventBus.off(GameEvent.END_SHOW, this.onEndShow, this);
         if (this.ctaButton) this.ctaButton.node.off(Button.EventType.CLICK, this.onClick, this);
         for (const d of this._drops) Tween.stopAllByTarget(d.state);
         this._drops.length = 0;
         this.unscheduleAllCallbacks();
+    }
+
+    /** `END_SHOW` 一到：配了结尾视频就先演它，演完（或玩家点一下跳过）再亮结束界面。
+     *  没配 / 没配播放器就让 `play()` 返回 false，照旧当场亮 —— 视频这一拍是可选表现，不能卡住 CTA。 */
+    private onEndShow(): void {
+        if (this.endVideo && this.endVideo.play((): void => this.show())) return;
+        this.show();
     }
 
     show(): void {

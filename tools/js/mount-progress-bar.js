@@ -1,5 +1,5 @@
 /**
- * 进度条外观接线，配套 `assets/scripts/ui/ProgressController.ts`（见 CLAUDE.md §14「进度条」）。
+ * 进度条外观接线，配套 `assets/scripts/ui/ProgressController.ts`（见 AGENTS.md §14「进度条」）。
  *
  *   node tools/exec.mjs scene tools/js/mount-progress-bar.js
  *

@@ -1,34 +1,11 @@
-import { _decorator, Component, ImageAsset, Node, Sprite, SpriteFrame, Texture2D, UIOpacity, UITransform, Vec3, tween, v3 } from 'cc';
+import { _decorator, Component, Node, Sprite, UIOpacity, UITransform, Vec3, tween, v3 } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
 import { FeatureFlags } from '../config/FeatureFlags';
 import { PoolManager } from '../core/PoolManager';
+import { makeDotFrame } from '../core/DotTexture';
 
 const { ccclass, property } = _decorator;
-
-const DOT_PX = 64;
-
-/** 白点自己算出来就行，不用美术给图：按到圆心的距离填 alpha，存成 ImageAsset。 */
-function makeDotFrame(): SpriteFrame {
-    const data = new Uint8Array(DOT_PX * DOT_PX * 4);
-    for (let y = 0; y < DOT_PX; y++) {
-        for (let x = 0; x < DOT_PX; x++) {
-            const dx = ((x + 0.5) / DOT_PX) * 2 - 1;
-            const dy = ((y + 0.5) / DOT_PX) * 2 - 1;
-            const falloff = 1 - Math.min(1, Math.sqrt(dx * dx + dy * dy));
-            const i = (y * DOT_PX + x) * 4;
-            data[i] = data[i + 1] = data[i + 2] = 255;
-            data[i + 3] = falloff * falloff * 255;
-        }
-    }
-    const tex = new Texture2D();
-    tex.image = new ImageAsset({ _data: data, width: DOT_PX, height: DOT_PX, format: Texture2D.PixelFormat.RGBA8888, _compressed: false });
-
-    const frame = new SpriteFrame();
-    frame.texture = tex;
-    frame.packable = false;
-    return frame;
-}
 
 /**
  * 拖拽拖尾。挂在 EffectLayer 上 —— 光点得留在原地，跟着碎片走就成不了尾。

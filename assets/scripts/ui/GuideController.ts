@@ -16,7 +16,7 @@ const { ccclass, property } = _decorator;
  * 所以滚动、转屏、换关卡都不用改这里。
  *
  * 「玩家碰没碰屏幕」要走两条路才收得全：碎片池上的触摸被 `content` 认领（全局 `input`
- * 收不到，见 CLAUDE.md §14），由 `DragController` 的 `PIECE_PICK` 顶替；屏幕空白处的
+ * 收不到，见 AGENTS.md §14），由 `DragController` 的 `PIECE_PICK` 顶替；屏幕空白处的
  * 触摸没人认领，走全局 `input`。两条路都只是「算有人操作」，不吃掉玩家自己的这一下。
  */
 @ccclass('GuideController')
@@ -71,6 +71,8 @@ export class GuideController extends Component {
         EventBus.on(GameEvent.PIECE_PICK, this.onTouch, this);
         EventBus.on(GameEvent.LEVEL_COMPLETE, this.onComplete, this);
         EventBus.on(GameEvent.GAME_OVER, this.onComplete, this);
+        // 系统接管 = 这一关不用玩家动手了，别再教
+        EventBus.on(GameEvent.AUTO_PLAY, this.onComplete, this);
         EventBus.on(GameEvent.GUIDE_HOLD, this.onHold, this);
         EventBus.on(GameEvent.GUIDE_RESUME, this.onResume, this);
         input.on(Input.EventType.TOUCH_START, this.onTouch, this);
@@ -82,6 +84,7 @@ export class GuideController extends Component {
         EventBus.off(GameEvent.PIECE_PICK, this.onTouch, this);
         EventBus.off(GameEvent.LEVEL_COMPLETE, this.onComplete, this);
         EventBus.off(GameEvent.GAME_OVER, this.onComplete, this);
+        EventBus.off(GameEvent.AUTO_PLAY, this.onComplete, this);
         EventBus.off(GameEvent.GUIDE_HOLD, this.onHold, this);
         EventBus.off(GameEvent.GUIDE_RESUME, this.onResume, this);
         input.off(Input.EventType.TOUCH_START, this.onTouch, this);
@@ -105,7 +108,7 @@ export class GuideController extends Component {
         this.armIdle();
     };
 
-    /** 通关，或者终局（`GAME_OVER`）—— 两种都不该再教了 */
+    /** 通关、终局（`GAME_OVER`）、或者系统接管（`AUTO_PLAY`）—— 都不该再教了 */
     private onComplete = (): void => {
         this._done = true;
         this.hide();

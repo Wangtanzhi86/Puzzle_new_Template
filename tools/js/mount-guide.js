@@ -49,7 +49,7 @@ rootUT.setContentSize(720, 1280);
 const ghost = ensure(root, 'GuideGhost');
 const ghostSprite = spriteOf(ghost);
 ghostSprite.spriteFrame = ghostFrame;
-// `refresh_assets` 之后那一小会儿 @property 的贴图引用可能先读到 null（见 CLAUDE.md §14 那条坑），
+// `refresh_assets` 之后那一小会儿 @property 的贴图引用可能先读到 null（见 AGENTS.md §14 那条坑），
 // 读到空就退回正方形占位 —— 反正运行期是按池里那块碎片重设的
 const gr = ghostFrame ? ghostFrame.rect : { width: PIECE_HEIGHT, height: PIECE_HEIGHT };
 ghost.getComponent(cc.UITransform).setContentSize(PIECE_HEIGHT * (gr.width / gr.height), PIECE_HEIGHT);

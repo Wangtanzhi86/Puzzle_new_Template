@@ -51,6 +51,9 @@ export class RepairSweep extends Component {
     @property({ displayName: '单块：补光强度' })
     repairFlash = 0.16;
 
+    @property({ displayName: '总修复：开演前定格（秒）', tooltip: '最后一格露面之后先静这么久再扫 —— 留一口白，那道光才像收尾而不是又一次反馈。⚠️ 它和 `SceneBgSwap` 的「开演前等待」是一对：那边要 ≥ 本值 + 时长' })
+    completeDelay = 0.5;
+
     @property({ displayName: '总修复：时长（秒）' })
     completeTime = 0.9;
 
@@ -92,6 +95,7 @@ export class RepairSweep extends Component {
         EventBus.off(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
         EventBus.off(GameEvent.PIECE_SHOWN, this.onShown, this);
         EventBus.off(GameEvent.LEVEL_COMPLETE, this.onComplete, this);
+        this.unschedule(this.startComplete);
         for (const parent of Array.from(this._live.keys())) this.stop(parent);
     }
 
@@ -125,12 +129,17 @@ export class RepairSweep extends Component {
 
     private runComplete(): void {
         if (!FeatureFlags.sweepOnComplete) return;
+        if (this.completeDelay > 0) this.scheduleOnce(this.startComplete, this.completeDelay);
+        else this.startComplete();
+    }
+
+    private startComplete = (): void => {
         const views: RepairedSlot[] = [];
         for (const d of this._data) {
             if (d.slot.showView) views.push(d.slot.showView);
         }
         this.sweep(views, this.complete);
-    }
+    };
 
     private sweep(views: RepairedSlot[], cfg: SweepConfig): void {
         if (!views.length) return;

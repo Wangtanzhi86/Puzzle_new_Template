@@ -28,3 +28,11 @@ node_modules/
 dist/
 # 从参考产物里扒音频的临时目录
 extracted-audio/
+
+#//////////////////////////
+# DSH（DeepSeek Harness）
+#//////////////////////////
+# 技能是 .dsh/skills/ 下的真实文件（进版本库）。
+# 其余 .dsh/ 内容属于机器本地状态，不提交。
+.dsh/*
+!.dsh/skills/

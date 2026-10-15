@@ -6,7 +6,8 @@
  *   1. `BackgroundLayer/Bg_Sprite` —— 原来没有 Widget，只靠尺寸刚好等于 720×1280 才看着铺满；
  *      补四边 Widget，宽高模式改 CUSTOM（不然 Sprite 会拿贴图尺寸把自己缩回去），
  *      type 改 SLICED —— `背景图.jpg` 的九宫格四边各留了 160px，拉伸时只拉中间那段。
- *   2. `GameLayer` / `PiecePoolLayer` / `UILayer/ProgressLayer` —— 三处**一条边都不贴**，尺寸钉死。
+ *   2. `GameLayer` / `PiecePoolLayer` / `UILayer/ProgressLayer` —— 三处**一条边都不贴**，尺寸钉死
+ *      （`GameLayer` 那个数由 `PuzzleAreaFit` 按底图比例算，这里不碰，见下方第 2 段）。
  *      它们原来都锚在画布底边上（那是按「画布 == 设计稿」摆的），画布一变高就整体往下挪了多出来的
  *      那一半，长屏上就是「内容偏下」。不贴边之后节点停在设计稿里的位置，而设计稿居中在画布上 ——
  *      构图和 SHOW_ALL 时一模一样。尺寸不钉死的话 L/R 会让它们跟着画布变宽，`Scene_BG` /
@@ -15,7 +16,7 @@
  *   node tools/exec.mjs scene tools/js/mount-adapt.js
  *
  * 幂等：重复跑只是再赋一次同样的值。横竖屏共用这一套 —— 横屏也走「补长边」（补宽度），画布变宽、构图居中同样靠它。
- * 要横屏两栏（拼图区放大 + 竖池子在右）得写代码，Widget 表达不了，见 CLAUDE.md §7.1。
+ * 要横屏两栏（拼图区放大 + 竖池子在右）得写代码，Widget 表达不了，见 AGENTS.md §7.1。
  */
 const canvas = cc.director.getScene().getChildByName('Canvas');
 const canvasH = canvas.getComponent(cc.UITransform).height;
@@ -46,7 +47,8 @@ bgSprite.type = cc.Sprite.Type.SLICED;
 //    节点停在设计稿里的位置（GameLayer y=180.435 / 池子 y=-433.813 / 进度条 y=-293.92），
 //    而设计稿本来就居中在画布上 —— 于是构图和 SHOW_ALL 时一模一样，只是黑边被背景填了。
 //    尺寸必须显式再钉一次：对齐边一拆，节点就回去用**自己存的 contentSize**，
-//    宽高当场就错了。这几个数是场景里摆好的，不是算出来的。
+//    宽高当场就错了。另外两处这两个数是场景里摆好的，不是算出来的；
+//    `GameLayer` 不传尺寸 —— 它那个数归 `PuzzleAreaFit` 管（见下）。
 //    （拆之前 L/R 对齐也会让它跟着画布一起变宽，把 Scene_BG / 完成背景 / RECT Mask 横向拉长。）
 const unanchor = (node, w, h) => {
   const ut = node.getComponent(cc.UITransform);
@@ -54,15 +56,16 @@ const unanchor = (node, w, h) => {
   wd.isAlignTop = wd.isAlignBottom = wd.isAlignLeft = wd.isAlignRight = false;
   wd.isAlignHorizontalCenter = wd.isAlignVerticalCenter = false;
   wd.alignMode = cc.Widget.AlignMode.ON_WINDOW_RESIZE;
-  ut.setContentSize(w, h);
+  if (w !== undefined) ut.setContentSize(w, h); // 不传就保留现有尺寸
   wd.updateAlignment();
   return wd;
 };
 
-//    GameLayer 的尺寸跟着拼图区底图走：1010/背景/捉奸黑白.png 是 976×1221，
-//    框高 840 时框宽 = 840 × 976/1221 = 671.45（Scene_BG / 完成背景 也钉的这个数）。
-//    换一张比例的底图就要一起改这三个数，否则 Scene_BG 会被横向压扁。
-const gameWidget = unanchor(canvas.getChildByName('GameLayer'), 671.45, 840);
+//    GameLayer 的尺寸**不在这儿写**：`GameLayer` 上挂的 `PuzzleAreaFit` 按拼图区底图的原始长宽比
+//    现算，`Scene_BG` / `完成背景` 跟着一起写成同一个数，换图重新导入即自适应（AGENTS.md §7.1）。
+//    这里写死过 671.45 × 840（= 840 × 976/1221，`1010/背景/捉奸黑白.png` 那个比例），
+//    换一张比例的底图它就会把自适应结果盖回去 —— 所以现在只拆对齐边，尺寸不传。
+const gameWidget = unanchor(canvas.getChildByName('GameLayer'));
 const poolLayer = canvas.getChildByName('PiecePoolLayer');
 const poolWidget = unanchor(poolLayer, 720, 300);
 const progress = canvas.getChildByPath('UILayer/ProgressLayer');

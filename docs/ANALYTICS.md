@@ -7,7 +7,7 @@
 > **如果你是「从别的项目拿到这份文档」的 AI**：读 §1–§6 就能完成接入，§7 当成一个完整实例对照。
 > **如果你在维护本项目**：查「某个上报点在哪一行」直接跳 §7。
 >
-> 本文内部的「§N」指本文自己；写 `CLAUDE.md §N` 的才指那份规范文件。
+> 本文内部的「§N」指本文自己；写 `AGENTS.md §N` 的才指那份规范文件。
 
 ---
 
@@ -238,10 +238,10 @@ export function resetAnalytics(): void {
 | [assets/scripts/platform/PlayableAnalytics.ts](../assets/scripts/platform/PlayableAnalytics.ts) | 埋点组件，挂在 `Canvas` 上，**只听 `EventBus`**（§3 的形状 B） |
 | [tools/js/mount-analytics.js](../tools/js/mount-analytics.js) | 接线脚本（幂等） |
 
-**发射方一行没改。** 所有触发点都是项目里早就存在的 `GameEvent`（CLAUDE.md §5 事件清单），
+**发射方一行没改。** 所有触发点都是项目里早就存在的 `GameEvent`（AGENTS.md §5 事件清单），
 组件只是多了一个监听者 —— 符合「模块间只通过 EventBus 通信」和「事件与发射方一律不动」两条约定。
 
-挂载（MCP 端口每轮可能变，当前值见 CLAUDE.md 现状速查）：
+挂载（MCP 端口每轮可能变，当前值见 docs/STATUS.md）：
 
 ```bash
 MCP_PORT=<端口> node tools/exec.mjs editor tools/js/refresh.js          # 先让编辑器认识新类
@@ -296,7 +296,7 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 
 `winCount` 是**运行期从场景里读的**（`director.getScene().getComponentInChildren(EndgameCta)`，
 和 `FeatureFlags.panel` 同一套路），读一次缓存。**不在 Inspector 上重复配一份** ——
-那种「两处数值不同步」的坑 CLAUDE.md §16 记过一次。
+那种「两处数值不同步」的坑 AGENTS.md §16 记过一次。
 
 当前配置下的实际触发点：
 
@@ -332,7 +332,7 @@ DISPLAYED → CHALLENGE_STARTED → CHALLENGE_PASS_25 → CHALLENGE_PASS_50
 这样报表上「点击率」会把自动跳转算进去，看着偏高。**这是有意的**（接入时确认过）：
 换成不报的话，主力路径（多数人是被自动跳走的）在点击那一列上会是 0，反而更难解释。
 
-> ⚠️ 自动跳转本身是不是 AppLovin 的合规项，和埋点无关，是独立的一条 —— 见 CLAUDE.md 现状速查里的风险项。
+> ⚠️ 自动跳转本身是不是 AppLovin 的合规项，和埋点无关，是独立的一条 —— 见 docs/STATUS.md里的风险项。
 
 ## 7.6 各环境下的行为
 

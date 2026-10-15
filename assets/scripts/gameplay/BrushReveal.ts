@@ -40,8 +40,8 @@ export class BrushReveal extends Component {
     @property({ displayName: '笔触行数', tooltip: '来回刷几笔、从左上角推到右下角。笔数越多笔迹越密；⚠️ 材质里循环上界封的是 12' })
     rows = 5;
 
-    @property({ displayName: '笔触半径（相对碎片高）', tooltip: '⚠️ 得 ≥ 1.45÷行数，否则相邻笔迹之间会留没涂到的缝（5 笔时下限 0.29）。调大 = 笔头更粗、来回的痕迹更糊' })
-    radius = 0.3;
+    @property({ displayName: '笔触半径（相对碎片高）', tooltip: '⚠️ 半径有下限，低于它相邻笔迹之间会露底：实测 ≈ 0.75÷行数（本项目这种竖长碎片）；碎片越方越费，正方形约 1÷行数。调大 = 笔头更粗、来回的痕迹更糊' })
+    radius = 0.25;
 
     @property({ displayName: '笔触羽化（相对半径）', tooltip: '越大笔迹边越虚；0 = 硬边' })
     feather = 0.25;

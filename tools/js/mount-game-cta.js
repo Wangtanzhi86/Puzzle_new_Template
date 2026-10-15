@@ -1,5 +1,5 @@
 /**
- * 游戏中那个常驻下载按钮的接线，配套 `assets/scripts/platform/GameCta.ts`（见 CLAUDE.md §14）。
+ * 游戏中那个常驻下载按钮的接线，配套 `assets/scripts/platform/GameCta.ts`（见 AGENTS.md §14）。
  *
  *   node tools/exec.mjs scene tools/js/mount-game-cta.js
  *

@@ -9,7 +9,8 @@ const { ccclass, property } = _decorator;
  * 配置列表里「激活事件」「结束事件」两个下拉框的选项。
  * 除 NONE 以外，值就是 GameEvent 的名字本身，可以直接丢给 EventBus；
  * GameEvent 里加了新事件、想拿它当音频触发点，就在这里补一条。
- * `BUTTON_DOWN` 是唯一的例外 —— 它不是一个 EventBus 事件，是「按下 `buttons` 里那些按钮的那一瞬」。
+ * 两个例外不在 EventBus 上，都由 `AudioManager` 自己点名：
+ * `BUTTON_DOWN` = 按下 `buttons` 里那些按钮的那一瞬；`LAST_SHOWN` = 最后一格露面那一下。
  */
 export enum AudioEvent {
     NONE = 'NONE',
@@ -27,14 +28,24 @@ export enum AudioEvent {
     LEVEL_COMPLETE = 'LEVEL_COMPLETE',
     END_SHOW = 'END_SHOW',
     END_DROP = 'END_DROP',
+    AUTO_PLAY = 'AUTO_PLAY',
+    GAME_OVER = 'GAME_OVER',
     GUIDE_HIDE = 'GUIDE_HIDE',
     CTA_SHOW = 'CTA_SHOW',
     CTA_CLICK = 'CTA_CLICK',
     ORIENTATION_CHANGED = 'ORIENTATION_CHANGED',
     AUDIO_MUTE = 'AUDIO_MUTE',
+    /** 不是 GameEvent：最后一格露面那一下（背景开始扩散）。`PIECE_SHOWN` 每格都发，这条只认凑满总数的那一次 */
+    LAST_SHOWN = 'LAST_SHOWN',
     /** 不是 GameEvent：按下「按压音效按钮」列表里那些按钮的那一瞬 */
     BUTTON_DOWN = 'BUTTON_DOWN',
 }
+
+/**
+ * 自动打关期间一声都不出的几条：那一段全是系统在替玩家放，再响一遍「拿起 / 放置」就成了六连音。
+ * 那一段有自己的常驻音（激活事件选 `AUTO_PLAY`），`AUTO_PLAY` 起、`GAME_OVER` 止。
+ */
+const AUTO_SILENT: AudioEvent[] = [AudioEvent.PIECE_PICK, AudioEvent.PIECE_SNAP_SUCCESS];
 
 /**
  * 终局之后仍然要放的那几条：结束界面自己的音（`END_DROP`）、胜利风铃（`LEVEL_COMPLETE`）
@@ -66,7 +77,10 @@ export class AudioCue {
     @property({ displayName: '渐出时长（秒）', tooltip: '停止时音量先降到 0 再真停。0 = 当场停。带间隔的循环里，它也是每一遍末尾那一下渐出' })
     fadeOut = 0;
 
-    @property({ displayName: '循环间隔（秒）', tooltip: '常驻音专用：一遍放完先静这么久再从头起播。0 = 引擎的无限循环，遍与遍之间没有间隔' })
+    @property({ displayName: '循环播放', tooltip: '非常驻的一条也一直循环，放到「结束事件」为止（自动打关那条就是它）。起播按「渐入」、停下按「渐出」' })
+    loop = false;
+
+    @property({ displayName: '循环间隔（秒）', tooltip: '配了「循环播放」或常驻音才用得上：一遍放完先静这么久再从头起播。0 = 引擎的无限循环，遍与遍之间没有间隔' })
     loopGap = 0;
 
     @property({ type: Enum(AudioEvent), displayName: '结束事件', tooltip: '选「NONE」= 不主动停：一次性音效播完即止，常驻的一直循环' })
@@ -107,8 +121,12 @@ interface Channel {
  * 见 `CtaController`）与 `LEVEL_COMPLETE`（胜利风铃），见 `POST_OVER`。
  *
  * 条目有两种「多一个格子」：
- * - `sequence`：按顺序播的列表，每触发一次换下一条（音阶 1-6）；
- * - `loopGap`：常驻音每一遍之间留一段静默（女主哭泣），末尾按 `fadeOut` 淡下去。
+ * - `sequence`：按顺序播的列表，每触发一次换下一条；
+ * - `loopGap`：循环的那几条每一遍之间留一段静默，末尾按 `fadeOut` 淡下去。
+ *
+ * 循环有两条路（`playCue` 里合成 `source.loop`）：常驻音（激活事件 NONE）与勾了「循环播放」的非常驻条目
+ * —— 后者靠「结束事件」收（自动打关音：`AUTO_PLAY` 起、`GAME_OVER` 止）。
+ * 那一段里 `AUTO_SILENT` 那几条一律不响。
  *
  * 按钮那一类（激活事件 = `BUTTON_DOWN`）不走 EventBus：它听 `buttons` 里那些节点的 `TOUCH_START`。
  * 不用 `CTA_CLICK` —— 那是松手才发，而且 `openStore()` 排在它**前面**，等它响时商店已经在开了。
@@ -129,6 +147,10 @@ export class AudioManager extends Component {
     private _unlocked = false;
     private _muted = false;
     private _closed = false;
+    /** 系统接管中（`AUTO_PLAY` 起、`GAME_OVER` 止）：这段时间 `AUTO_SILENT` 那几条不响 */
+    private _auto = false;
+    private _total = 0;
+    private _shown = 0;
 
     protected onEnable(): void {
         if (!FeatureFlags.audio) return;
@@ -139,6 +161,10 @@ export class AudioManager extends Component {
         EventBus.on(GameEvent.END_SHOW, this.onEnd, this);
         EventBus.on(GameEvent.CTA_CLICK, this.onCtaClick, this);
         EventBus.on(GameEvent.AUDIO_MUTE, this.onMute, this);
+        EventBus.on(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
+        EventBus.on(GameEvent.PIECE_SHOWN, this.onShown, this);
+        EventBus.on(GameEvent.AUTO_PLAY, this.onAutoPlay, this);
+        EventBus.on(GameEvent.GAME_OVER, this.onGameOver, this);
         this.build();
     }
 
@@ -148,6 +174,10 @@ export class AudioManager extends Component {
         EventBus.off(GameEvent.END_SHOW, this.onEnd, this);
         EventBus.off(GameEvent.CTA_CLICK, this.onCtaClick, this);
         EventBus.off(GameEvent.AUDIO_MUTE, this.onMute, this);
+        EventBus.off(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
+        EventBus.off(GameEvent.PIECE_SHOWN, this.onShown, this);
+        EventBus.off(GameEvent.AUTO_PLAY, this.onAutoPlay, this);
+        EventBus.off(GameEvent.GAME_OVER, this.onGameOver, this);
         for (const ch of this._channels) {
             EventBus.off(ch.cue.event, ch.onStart);
             EventBus.off(ch.cue.stopEvent, ch.onStop);
@@ -196,7 +226,8 @@ export class AudioManager extends Component {
             if (!ch.resident) {
                 if (cue.event === AudioEvent.BUTTON_DOWN) {
                     for (const btn of this.buttons) btn.on(Node.EventType.TOUCH_START, ch.onButton, this);
-                } else {
+                } else if (cue.event !== AudioEvent.LAST_SHOWN) {
+                    // LAST_SHOWN 不是总线事件，它由下面的 onShown 凑满总数时自己点名
                     EventBus.on(cue.event, ch.onStart);
                 }
             }
@@ -215,15 +246,17 @@ export class AudioManager extends Component {
     private playCue(ch: Channel): void {
         if (this._muted || !this._unlocked) return;
         // 终局之后才响的那两条本来就发生在关场之后，不受 `_closed` 拦（见 POST_OVER）
-        if (this._closed && !POST_OVER.includes(ch.cue.event)) return;
+        if (this._closed && POST_OVER.indexOf(ch.cue.event) < 0) return;
+        if (this._auto && AUTO_SILENT.indexOf(ch.cue.event) >= 0) return;
         const clip = this.nextClip(ch);
         if (!clip) return;
         const source = ch.source;
         source.clip = clip;
         // 带间隔的循环必须把引擎的 loop 关掉：`loop = true` 时 `ENDED` 永远不来，
         // 遍与遍之间就没法留静默
-        ch.gapLoop = ch.resident && ch.cue.loopGap > 0;
-        source.loop = ch.resident && !ch.gapLoop;
+        const looping = ch.resident || ch.cue.loop;
+        ch.gapLoop = looping && ch.cue.loopGap > 0;
+        source.loop = looping && !ch.gapLoop;
         this.fade(ch, 0, 1, ch.cue.fadeIn);
         source.play();
         ch.live = true;
@@ -263,6 +296,30 @@ export class AudioManager extends Component {
                 if (ch.live && !this._closed) this.playCue(ch);
             }, ch.cue.loopGap);
         }
+    }
+
+    /** 「最后一格露面」的判法：`PIECE_SHOWN` 每格都发，凑满 `LEVEL_BUILT` 报的总数才是最后那一下
+     *  —— 和 `SceneBgSwap` 内部同一个判断（背景就是这一拍开始扩散的），§5 不让改发射方、也不让加事件名，
+     *  所以这边自己数一遍。 */
+    private onLevelBuilt(data: unknown[]): void {
+        this._total = data.length;
+        this._shown = 0;
+    }
+
+    private onShown(): void {
+        this._shown++;
+        if (this._shown < this._total) return;
+        for (const ch of this._channels) {
+            if (ch.cue.event === AudioEvent.LAST_SHOWN) this.playCue(ch);
+        }
+    }
+
+    private onAutoPlay(): void {
+        this._auto = true;
+    }
+
+    private onGameOver(): void {
+        this._auto = false;
     }
 
     private stopChannel(ch: Channel): void {
@@ -313,7 +370,7 @@ export class AudioManager extends Component {
     private stopAll(): void {
         this._closed = true;
         for (const ch of this._channels) {
-            if (!POST_OVER.includes(ch.cue.event)) this.stopChannel(ch);
+            if (POST_OVER.indexOf(ch.cue.event) < 0) this.stopChannel(ch);
         }
     }
 
@@ -322,7 +379,7 @@ export class AudioManager extends Component {
         for (const ch of this._channels) {
             if (!ch.live) continue;
             if (muted) ch.source.pause();
-            else if (ch.resident && !this._closed) ch.source.play();
+            else if ((ch.resident || ch.cue.loop) && !this._closed) ch.source.play();
         }
     }
 }

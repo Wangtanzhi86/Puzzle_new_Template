@@ -1,5 +1,7 @@
 import { _decorator, Color, Component, EffectAsset, Material, Node, Sprite, Tween, UIOpacity, UITransform, Vec2, Vec3, Vec4, tween } from 'cc';
 import { FeatureFlags } from '../config/FeatureFlags';
+import { EventBus } from '../core/EventBus';
+import { GameEvent } from '../core/GameEvent';
 import { OverlayMode } from '../data/LevelTypes';
 import { RevealHost } from './RepairReveal';
 import { peelLine } from './StickerPeel';
@@ -48,6 +50,7 @@ interface PulseHandle {
  * 它跟圆形扩散不是一回事 —— 圆形扩散是「揭晓」，要有张破损图垫在底下可揭；这一刻修复图早就完整
  * 铺好了，脉冲不揭任何东西，纯粹是「贴好了」那一下的反馈。所以它俩不冲突、也不用抢，
  * 收尾这一下就长在贴平自己的流程末尾。
+ * **系统接管（自动打关）之后这一下不演** —— 一屏几格同时收放会糊成一片闪，见 `settle`。
  *
  * 背面是修复图下面一个运行时建的同尺寸子节点（子节点画在父节点之上，翘起来那半正好压住画面；
  * 顶点着色器把那一半镜像过去，片元里涂平色 + 折线上一圈高光）。贴平后材质和背面节点都销毁，
@@ -110,6 +113,12 @@ export class StickerApply extends Component {
 
     private _live = new Map<Node, ApplyHandle>();
     private _pulses = new Map<Node, PulseHandle>();
+    /** 系统接管了（`AUTO_PLAY`）。接管期间不演收尾脉冲，见 `settle` */
+    private _auto = false;
+
+    protected onEnable(): void {
+        EventBus.on(GameEvent.AUTO_PLAY, this.onAutoPlay, this);
+    }
 
     /** 这一格该不该走贴纸贴平（开关开着 + 两个材质都拖了 + 有修复图）。false 时调用方照旧走自己那套 */
     handles(host: RevealHost): boolean {
@@ -172,11 +181,14 @@ export class StickerApply extends Component {
     }
 
     /** 贴平推到位：收起贴纸那套（材质 / 背面节点），紧接着演收尾脉冲。没配 `pulseEffect`
-     *  就当场收摊 —— 这也是单独关掉这一下的口子。 */
+     *  就当场收摊 —— 这也是单独关掉这一下的口子。
+     *
+     *  ⚠️ **系统接管之后不演脉冲**（`_auto`）：那一段是一屏几格同时飞过来，每格各缩各淡、
+     *  0.2 秒一收一放，叠在一起就是一片闪。接管期间贴平推完直接算露面。 */
     private settle(node: Node): void {
         const handle = this.peelOff(node);
         if (!handle) return;
-        if (this.pulseEffect) this.runPulse(node, handle.onApplied);
+        if (this.pulseEffect && !this._auto) this.runPulse(node, handle.onApplied);
         else handle.onApplied();
     }
 
@@ -279,7 +291,12 @@ export class StickerApply extends Component {
     }
 
     protected onDisable(): void {
+        EventBus.off(GameEvent.AUTO_PLAY, this.onAutoPlay, this);
         for (const node of Array.from(this._live.keys())) this.peelOff(node);
         for (const node of Array.from(this._pulses.keys())) this.endPulse(node, false);
+    }
+
+    private onAutoPlay(): void {
+        this._auto = true;
     }
 }

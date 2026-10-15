@@ -14,6 +14,7 @@ export enum GameEvent {
     END_SHOW = 'END_SHOW',
     END_DROP = 'END_DROP',
     GAME_OVER = 'GAME_OVER',
+    AUTO_PLAY = 'AUTO_PLAY',
     GUIDE_HIDE = 'GUIDE_HIDE',
     GUIDE_HOLD = 'GUIDE_HOLD',
     GUIDE_RESUME = 'GUIDE_RESUME',

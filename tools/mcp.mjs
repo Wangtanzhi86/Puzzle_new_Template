@@ -5,8 +5,10 @@
  * 调任意一个 Funplay MCP 工具，打印 result 的 text 内容。
  * execute_javascript 请用 tools/exec.mjs（它会处理场景存盘和返回信封）。
  */
-const HOST = process.env.MCP_HOST ?? '127.0.0.1';
-const PORT = process.env.MCP_PORT ?? '20168';
+const { endpoint } = await import('./lib/cocos-port.mjs');
+
+// 端口默认现算（按项目路径，稳定值），不再硬编码；MCP_PORT 仍可覆盖。
+const ENDPOINT = endpoint();
 
 const [name, argsJson] = process.argv.slice(2);
 if (!name) {
@@ -14,7 +16,7 @@ if (!name) {
   process.exit(1);
 }
 
-const res = await fetch(`http://${HOST}:${PORT}/mcp`, {
+const res = await fetch(ENDPOINT, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
   body: JSON.stringify({

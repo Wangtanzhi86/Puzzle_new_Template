@@ -1,6 +1,7 @@
 import { _decorator, Component, Layout, Node, ScrollView, UITransform, Vec3, Widget, view } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
+import { centerLayoutContent } from '../gameplay/PiecePool';
 
 const { ccclass, property } = _decorator;
 
@@ -16,7 +17,7 @@ interface PortraitState {
     ctaPos: Vec3; ctaWidget: boolean;
     type: number; spacingY: number;
     padL: number; padR: number; padT: number; padB: number;
-    horizontal: boolean; vertical: boolean;
+    vertical: boolean;
 }
 
 /**
@@ -90,7 +91,10 @@ export class LandscapeLayout extends Component {
             contentW: sv.content.getComponent(UITransform).width, contentH: sv.content.getComponent(UITransform).height,
             type: layout.type, spacingY: layout.spacingY,
             padL: layout.paddingLeft, padR: layout.paddingRight, padT: layout.paddingTop, padB: layout.paddingBottom,
-            horizontal: sv.horizontal, vertical: sv.vertical,
+            // `horizontal` 不存也不还 —— 它归 `PiecePool.onLoad` 管，一直是 false（关掉才轮得到
+            // `centerLayoutContent` 说话）。这里存了反而会还错：`onLoad` 排在 `PiecePool.onLoad` 前面，
+            // 记下的是场景里那个旧值，转一圈回来就把居中的前提拆了。
+            vertical: sv.vertical,
         };
     }
 
@@ -136,7 +140,7 @@ export class LandscapeLayout extends Component {
         layout.paddingRight = p.padR;
         layout.paddingTop = p.padL;      // 竖栏上下也留边，取左右那个值
         layout.paddingBottom = p.padL;
-        sv.horizontal = false;
+        // 横轴滚动一直是关的（`PiecePool.onLoad` 关的，那边解释了为什么），转屏也不用碰它，这里只管竖轴
         sv.vertical = true;
         sv.node.getComponent(Widget).enabled = false;   // 竖屏那套边距是照 720×300 的条带配的，栏的尺寸下面自己算
         layout.updateLayout(true);
@@ -193,10 +197,9 @@ export class LandscapeLayout extends Component {
         this.cta.getComponent(Widget).enabled = false;
         this.cta.setPosition(-(view.getVisibleSize().width * 0.5 + totalW * 0.5) * 0.5, 0, 0);
 
-        // 内容比视区高时引擎会把内容贴底，这时要滚到顶；横向一律拽回中点 —— `PiecePool.scrollToStart` 那句
-        // scrollToLeft 是给横向条带写的，在竖栏里会把内容推偏（在池子建好后跑的那一次会纠正回来）
-        if (contentUt.height > railH) sv.scrollToTop();
-        sv.content.setPosition(0, sv.content.position.y, 0);
+        // 竖栏也照碎片池那条规矩：整列几何中心对到栏的中线上，装不下就两头一起露在框外被 Mask 裁掉，
+        // 不滚（`PiecePool.centerLayoutContent` 看 `layout.type` 自己认主轴，这里也是 VERTICAL）
+        centerLayoutContent(sv.content);
     }
 
     private restorePortrait(): void {
@@ -214,7 +217,6 @@ export class LandscapeLayout extends Component {
         this.poolBg.setRotationFromEuler(p.bgEuler.x, p.bgEuler.y, p.bgEuler.z);
         this.poolBg.setScale(p.bgScale.x, p.bgScale.y, p.bgScale.z);
 
-        sv.horizontal = p.horizontal;
         sv.vertical = p.vertical;
         sv.view.setContentSize(p.viewW, p.viewH);
         sv.view.node.setPosition(p.viewPos.x, p.viewPos.y, p.viewPos.z);
@@ -236,7 +238,7 @@ export class LandscapeLayout extends Component {
         sv.content.getComponent(UITransform).setContentSize(p.contentW, p.contentH);
         layout.updateLayout(true);
         svWidget.updateAlignment();
-        sv.scrollToLeft();
+        centerLayoutContent(sv.content);
 
         // 常驻按钮交回底部 Widget（`enabled = true` 会把它标脏，下一次重排自己算回竖屏位置）
         this.cta.setPosition(p.ctaPos.x, p.ctaPos.y, p.ctaPos.z);

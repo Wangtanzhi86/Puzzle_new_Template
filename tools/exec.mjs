@@ -14,10 +14,10 @@
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { endpoint, resolvePort } from './lib/cocos-port.mjs';
 
-const HOST = process.env.MCP_HOST ?? '127.0.0.1';
-const PORT = process.env.MCP_PORT ?? '20168';
-const ENDPOINT = `http://${HOST}:${PORT}/mcp`;
+// 端口默认现算（按项目路径，稳定值），不再硬编码；MCP_PORT 仍可覆盖。
+const ENDPOINT = endpoint();
 
 const argv = process.argv.slice(2);
 const noSave = argv.includes('--no-save');
@@ -58,6 +58,8 @@ async function run(ctx, src, scriptArgs) {
   } catch (e) {
     console.error(`连不上 MCP (${ENDPOINT})：${e.message}`);
     console.error('确认编辑器开着，且 Funplay Cocos MCP 扩展已启动。');
+    console.error(`提示：端口是按项目路径现算的（现在 ${resolvePort()}）；`);
+    console.error('扩展若改成固定端口 / 设了 COCOS_MCP_PORT，用 MCP_PORT=<端口> 覆盖。');
     process.exit(1);
   }
 

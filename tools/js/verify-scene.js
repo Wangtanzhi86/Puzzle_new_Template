@@ -3,6 +3,7 @@ const canvas = sc.getChildByName('Canvas');
 const wanted = {
     PiecePool: ['content', 'dragRoot', 'factory', 'scrollView'],
     DragController: ['pool'],
+    AutoPlayer: ['pool'],
     LevelFactory: ['brokenLayer'],
     GuideController: ['root', 'ghost', 'finger'],
     ProgressController: ['root', 'label', 'fill'],
@@ -25,7 +26,7 @@ const wanted = {
     CircleReveal: ['revealEffect'],
     BrushReveal: ['brushEffect'],
     StickerApply: ['frontEffect', 'backEffect'],
-    SceneBgSwap: ['revealEffect', 'revealView'],
+    SceneBgSwap: ['brushEffect', 'revealView', 'dust'],
     IdleMotion: [],
     FlushAction: ['water'],
     BroomSweep: ['items'],
@@ -33,6 +34,7 @@ const wanted = {
     GroundWater: [],
     LandscapeLayout: ['gameLayer', 'progressLayer', 'poolLayer', 'poolBg', 'scrollView', 'cta'],
     BackgroundSwap: ['bg', 'landscapeFrame'],
+    PuzzleAreaFit: ['source', 'doneBg'],
 };
 const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc.js.getClassName(c)) };
 (function walk(n) {
@@ -194,6 +196,21 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
     }
     checkButton('UILayer/CtaLayer/CtaRoot/End/btn', 'btn');
 })();
+// 结尾视频（§18）：节点必须**睡着**（引擎只在 onDisable 里把 `<video>` 设成 hidden，节点醒着那块区域的触摸
+// 就永远到不了画布）、不能挂 Widget（引擎在 META_LOADED 那一下会把节点尺寸改成片源原始像素，Widget 会跟它抢）、
+// 片源与播放区域都得配 —— 缺任一 `play()` 就直接放弃视频，表现是「配了却不演」。
+(function checkEndVideo() {
+    const cta = canvas.getChildByPath('UILayer/CtaLayer');
+    const ctrl = cta && cta.getComponent('CtaController');
+    if (!ctrl || !ctrl.endVideo) return; // 没配 = 「不演视频」，是合法退路，不算错
+    const v = ctrl.endVideo;
+    const node = v.node;
+    if (node.active) out.missing.push('结尾视频 节点没睡着（active = true），那块区域的触摸到不了画布');
+    if (node.getComponent(cc.Widget)) out.missing.push('结尾视频 挂了 Widget，会和引擎改节点尺寸那一句抢');
+    if (!v.player) out.missing.push('EndVideo@' + node.name + ' 没配播放器，视频不会演');
+    else if (!v.player.clip) out.missing.push('EndVideo@' + node.name + ' 的 VideoPlayer 没拖片源，视频不会演');
+    if (!v.region) out.missing.push('EndVideo@' + node.name + ' 没配播放区域，铺不满');
+})();
 // 按钮：缩的必须是子节点。直接缩自己的话，引擎的 touchEnd 会按缩放后的框做 hitTest，
 // 贴着边按下再松手会被判成 TOUCH_CANCEL，Button 收不到 TOUCH_END 就不发 CLICK —— CTA 点击丢掉
 // （结束界面那个和游戏中那个常驻按钮都按这条查）
@@ -278,9 +295,38 @@ function checkButton(path, name) {
     ].forEach((pair) => {
         const w = pair[1] && pair[1].getComponent(cc.Widget);
         if (w && (w.isAlignTop || w.isAlignBottom || w.isAlignLeft || w.isAlignRight || w.isAlignHorizontalCenter || w.isAlignVerticalCenter)) {
-            out.missing.push(pair[0] + ' 贴着画布边，长屏上内容会偏下或被拉宽（见 CLAUDE.md §7.1）');
+            out.missing.push(pair[0] + ' 贴着画布边，长屏上内容会偏下或被拉宽（见 AGENTS.md §7.1）');
         }
     });
+    // 拼图框的尺寸不是手配的，是 `PuzzleAreaFit` 按底图比例现算的（§7.1）。掉了就是
+    // 「底图换了、框没换」—— Scene_BG 被横向压扁，而 RECT Mask / 完成背景还停在旧框上。
+    const frame = [
+        ['GameLayer', canvas.getChildByName('GameLayer')],
+        ['GameLayer/Scene_BG', canvas.getChildByPath('GameLayer/Scene_BG')],
+        ['GameLayer/Scene_BG/完成背景', canvas.getChildByPath('GameLayer/Scene_BG/完成背景')],
+    ];
+    if (!frame[0][1].getComponent('PuzzleAreaFit')) {
+        out.missing.push('GameLayer 没挂 PuzzleAreaFit，换一张比例的底图拼图框不会跟着走（见 AGENTS.md §7.1）');
+    }
+    const sizeOf = (n) => { const u = n && n.getComponent(cc.UITransform); return u ? u.width + '×' + u.height : '<缺>'; };
+    const sizes = frame.map((p) => sizeOf(p[1]));
+    if (sizes[0] !== sizes[1] || sizes[1] !== sizes[2]) {
+        out.missing.push('拼图框三处尺寸不一致（' + frame.map((p, i) => p[0] + '=' + sizes[i]).join(' / ') + '），RECT Mask 和画笔涂色都盖不满');
+    }
+})();
+// 仙尘（§16）：粒子节点从左下角拖到笔头上全靠 `SceneBgSwap` 每帧 `setPosition`，
+// 但「发射器跟着谁走」这件事是由 `positionType` 定的 —— 配成 RELATIVE / GROUPED 的话
+// 已经撒出去的那一片会整块跟着笔头平移，拖尾就散了。另外「加载时播放」得关掉：
+// 开着的话开演之前它就在拼图区中间一直冒。
+(function checkDust() {
+    const swap = canvas.getChildByPath('GameLayer/Scene_BG').getComponent('SceneBgSwap');
+    if (!swap || !swap.dust) return;
+    if (swap.dust.positionType !== cc.ParticleSystem2D.PositionType.FREE) {
+        out.missing.push('SceneBgSwap 的仙尘不是 FREE 位置类型，撒出去的那片会跟着笔头整块挪，出不了拖尾');
+    }
+    if (swap.dust.playOnLoad) {
+        out.missing.push('SceneBgSwap 的仙尘开着「加载时播放」，开演之前它就一直在冒');
+    }
 })();
 // 揭角（§14）：逐格覆盖是「全有或全无」，勾上就整份换成 `peelParams` 自己的值 ——
 // 没有那份（老实例还没刷出字段）就是取到 undefined 直接抛。
@@ -316,5 +362,26 @@ function checkButton(path, name) {
         p.backColor.r !== apply.backColor.r || p.backColor.g !== apply.backColor.g || p.backColor.b !== apply.backColor.b ||
         num(p.creaseWidth, apply.creaseWidth) || num(p.creaseGlow, apply.creaseGlow);
     if (drift) out.missing.push('StickerApply 的抄写值和全局揭角参数不一致，重跑一次 mount-sticker-apply.js');
+})();
+// 收尾那一段（§16）：总修复的扫光和完成背景那支画笔**都**挂在「最后一格露面」这一拍上，
+// 让它们前后排开靠的是两个各自独立的延时（`RepairSweep.completeDelay` / `SceneBgSwap.delay`），
+// 谁也没法给谁传话（事件与发射方一律不动）。对不上就是两道一起演、或者白等一段。数在
+// `tools/js/set-finale.js` 里成对写，改那儿就够；这里只管它俩戳没戳齐。
+(function checkFinale() {
+    const flags = canvas.getComponent('FeatureFlags');
+    const sweep = canvas.getChildByName('EffectLayer').getComponent('RepairSweep');
+    const swap = canvas.getChildByPath('GameLayer/Scene_BG').getComponent('SceneBgSwap');
+    if (!flags || !sweep || !swap) return;
+    const sweepEnd = sweep.completeDelay + sweep.completeTime;
+    if (flags.sweepOnComplete && swap.delay < sweepEnd - 0.05) {
+        out.missing.push('SceneBgSwap 的开演等待（' + swap.delay + 's）短于总修复扫光演完的时刻（' + sweepEnd + 's），两道会叠在一起');
+    }
+    if (!flags.sweepOnComplete && swap.delay > 0) {
+        out.missing.push('总修复扫光关着，但 SceneBgSwap 的开演等待还是 ' + swap.delay + 's，最后一格露面后会白等这一段');
+    }
+    // 「直接亮出来」靠的是把 revealView 的贴图挪到 Scene_BG 上 —— 没配它最后根本不会出现完成图
+    if (swap.instant && !swap.revealView) {
+        out.missing.push('SceneBgSwap 选了「直接亮出来」但没配完成背景（revealView），最后不会出现完成图');
+    }
 })();
 return out;

@@ -2,7 +2,9 @@ import { _decorator, Component, director } from 'cc';
 
 const { ccclass, property } = _decorator;
 
-/** 面板不在场时读这里（编辑器编辑模式、面板被误删）：全开，避免少一个开关就玩法残缺 */
+/** 面板不在场时读这里（编辑器编辑模式、面板被误删）：全开，避免少一个开关就玩法残缺。
+ *  唯一的例外是 `autoPlay` —— 它改的是玩法本身（玩家放几块之后系统接管），不是「多演一下少演一下」，
+ *  面板丢了就该退回「玩家自己修完」的老行为，不是替他打完。 */
 const DEFAULTS = {
     pieceGlow: true,
     stickerPeel: true,
@@ -16,6 +18,7 @@ const DEFAULTS = {
     guide: true,
     progress: true,
     audio: true,
+    autoPlay: false,
 };
 
 /**
@@ -71,6 +74,9 @@ export class FeatureFlags extends Component {
     @property({ displayName: '音效' })
     audio = DEFAULTS.audio;
 
+    @property({ displayName: '自动打关', tooltip: '玩家自己修够几块之后系统接管，剩下的碎片一块接一块自动飞过去吸附。门槛与节奏在 GameLayer 的「自动打关」组件上' })
+    autoPlay = DEFAULTS.autoPlay;
+
     private static get panel(): FeatureFlags {
         return director.getScene().getComponentInChildren(FeatureFlags);
     }
@@ -88,4 +94,5 @@ export class FeatureFlags extends Component {
     static get guide(): boolean { return (FeatureFlags.panel ?? DEFAULTS).guide; }
     static get progress(): boolean { return (FeatureFlags.panel ?? DEFAULTS).progress; }
     static get audio(): boolean { return (FeatureFlags.panel ?? DEFAULTS).audio; }
+    static get autoPlay(): boolean { return (FeatureFlags.panel ?? DEFAULTS).autoPlay; }
 }

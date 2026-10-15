@@ -1,5 +1,5 @@
 /**
- * 结束界面接线，配套 `assets/scripts/platform/CtaController.ts`（见 CLAUDE.md §14）。
+ * 结束界面接线，配套 `assets/scripts/platform/CtaController.ts`（见 AGENTS.md §14）。
  *
  *   node tools/exec.mjs scene tools/js/mount-end-card.js
  *
@@ -86,7 +86,7 @@ ctrl.logo = logoNode;
 ctrl.ctaButton = button;
 
 // WidgetManager 的整树重排要等下一次 AFTER_UPDATE，编辑模式不一定跑得到 ——
-// 自上而下刷一遍，否则存进场景的 UITransform 停在中间态（见 CLAUDE.md §14）
+// 自上而下刷一遍，否则存进场景的 UITransform 停在中间态（见 AGENTS.md §14）
 for (const n of [cta, root, end, bgNode]) {
     const w = n.getComponent(cc.Widget);
     if (w) w.updateAlignment();

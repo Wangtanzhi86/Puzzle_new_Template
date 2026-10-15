@@ -14,6 +14,47 @@ export interface PieceEntry {
 }
 
 /**
+ * 把 Layout 排出来的内容沿它自己的主轴居中到父节点（`view`）的中线上。间距 / 边距填多少都不影响 ——
+ * 是量子节点实际占的那一段量出来的，不是算出来的。
+ *
+ * 为什么挪一下 `content` 就够了：`view` 的局部原点就是裁剪窗的中心（锚点 0.5），而 Layout 的
+ * CONTAINER 把 `content` 撑成恰好包住内容，所以内容的中点在 `content` 局部的 `mid` 处，
+ * 把 `content` 的主轴坐标置成 `-mid` 就把它对到了窗口中心。
+ *
+ * 内容比窗口大时两头一起露在框外，由 `view` 上的 Mask 裁掉 —— 不走滚动。
+ *
+ * 对称边距下 `mid` 恰好是 0（Layout 自己就摆正了），这个函数存在的意义有两个：边距不对称时
+ * 把它算回来，以及每次排完版把 `content` 自己被人挪偏的位置拉回来。
+ *
+ * ⚠️ 光有它还不够 —— `ScrollView` 有一条**它自己**的路会把 `content` 左贴边，见 `PiecePool.onLoad`。
+ */
+export function centerLayoutContent(content: Node): void {
+    const layout = content.getComponent(Layout);
+    if (!layout) return;
+    const horizontal = layout.type === Layout.Type.HORIZONTAL;
+
+    let min = Infinity;
+    let max = -Infinity;
+    const children = content.children;
+    for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (!child.activeInHierarchy) continue;
+        const ut = child.getComponent(UITransform);
+        if (!ut) continue;
+        const size = (horizontal ? ut.width : ut.height) * Math.abs(horizontal ? child.scale.x : child.scale.y);
+        const pos = horizontal ? child.position.x : child.position.y;
+        const anchor = horizontal ? ut.anchorX : ut.anchorY;
+        min = Math.min(min, pos - anchor * size);
+        max = Math.max(max, pos + (1 - anchor) * size);
+    }
+    if (min > max) return;   // 一块都没有，别去动空池子的位置
+
+    const mid = (min + max) / 2;
+    const p = content.position;
+    content.setPosition(horizontal ? -mid : p.x, horizontal ? p.y : -mid, p.z);
+}
+
+/**
  * 碎片池。碎片平时活在 content 的 Layout 里，被拿起时挪到 dragRoot，
  * 原位留一个同样大小的 Spacer 顶住 —— 不然 Layout 会立刻重排，
  * 剩下的碎片会当着玩家的面跳一下。
@@ -47,14 +88,31 @@ export class PiecePool extends Component {
     /** `_data` 里下一块该摆出来的碎片的下标。一批一批往前推，摆完就是收摊 */
     private _next = 0;
 
+    protected onLoad(): void {
+        // 关掉横轴滚动。这是「居中」能站住的前提，不是顺手加的：
+        // `ScrollView` 动 `content` 的 x 只有一条路 —— `_calculateBoundary()` 末尾的
+        // `_moveContentToTopLeft()`，内容比裁剪窗窄时它把 `content` **左贴边**（实测 583.893 的窗、
+        // 347.62 的内容 → `content.x = -(583.893 - 347.62)/2 = -118.14`）。而那个位移要经
+        // `_moveContent()` → `_flattenVectorByDirection()` 才落地，`horizontal` 关着时它会把 x 清成 0。
+        // 另一条 `_adjustContentOutOfBoundary()` 不用管：它的位移经 `_clampDelta()`，同样条件下 x 也是 0。
+        // 时机也赶得上 —— 只有 `onLoad` 排在 `ScrollView.start()` 前面，而 `start()` 里那句
+        // `_calculateBoundary()` 正是开场把居中推掉的那一次。
+        // 于是 `content` 的横轴位置只剩 `centerLayoutContent()` 一个来源，转屏 / 换批都不会被推走。
+        // 代价是行比裁剪窗宽时不能划着看 —— 那正是「永远居中、两头被裁」要的。
+        if (this.scrollView) this.scrollView.horizontal = false;
+    }
+
     protected onEnable(): void {
         EventBus.on(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
         EventBus.on(GameEvent.GAME_OVER, this.lockScroll, this);
+        // 系统接管之后池子只出不进，玩家也不该再能碰它
+        EventBus.on(GameEvent.AUTO_PLAY, this.lockScroll, this);
     }
 
     protected onDisable(): void {
         EventBus.off(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
         EventBus.off(GameEvent.GAME_OVER, this.lockScroll, this);
+        EventBus.off(GameEvent.AUTO_PLAY, this.lockScroll, this);
     }
 
     get count(): number {
@@ -70,13 +128,12 @@ export class PiecePool extends Component {
         this._data = data;
         this._next = 0;
         this.buildBatch(false);
-        this.scrollToStart();
         // 抛出去的是 `_entries` 本身：碎片被用掉时它自己会 splice，引导那边不用重新订阅
         EventBus.emit(GameEvent.POOL_BUILT, this._entries);
     }
 
-    /** 摆一批碎片。开场摆第一屏（不淡入），这一屏用光后在 `consume` 里补下一屏（淡入）。
-     *  摆不满一批（剩下的不到 `batchSize`）就摆多少算多少。 */
+    /** 摆一屏碎片。开场摆第一屏（不淡入），用光之后由 `consumeAll` / `buildMore` 补下一屏（淡入）。
+     *  摆不满一屏（剩下的不到 `batchSize`）就摆多少算多少。 */
     private buildBatch(animate: boolean): void {
         const size = this.batchSize > 0 ? this.batchSize : this._data.length;
         const end = Math.min(this._next + size, this._data.length);
@@ -85,19 +142,18 @@ export class PiecePool extends Component {
             this._entries.push({ piece, slotIndex: i, spacer: null });
             if (animate && this.batchFadeTime > 0) {
                 const op = piece.getComponent(UIOpacity);
+                // 上一批的淡入可能还没跑完（「一次飞几批」时一批用掉得比 `batchFadeTime` 还快，
+                // 而新一批拿到的正是刚还回去的那些节点）—— 不掐掉它，两条 tween 会一起写 opacity，
+                // 新的一块会直接亮着出现
+                Tween.stopAllByTarget(op);
                 op.opacity = 0;
                 tween(op).to(this.batchFadeTime, { opacity: 255 }, { easing: 'quadOut' }).start();
             }
         }
         this._next = end;
-        // 排完再回去：`onLevelBuilt` 末尾那次 `scrollToStart()` 得按排好的内容宽度算
+        // 排完再居中 —— 每次 `updateLayout` 之后都要来一下，间距/宽窄变了行宽就变了
         this.content.getComponent(Layout).updateLayout(true);
-    }
-
-    /** 一行碎片比视区宽时引擎会把内容贴右（`_adjustContentOutOfBoundary`），一进来先看到的是行尾，
-     *  第一块被挡在框外。这里显式跳到最左：从第一块看起，后面的碎片被用掉后自然补上来。 */
-    private scrollToStart(): void {
-        if (this.scrollView) this.scrollView.scrollToLeft();
+        centerLayoutContent(this.content);
     }
 
     entryOf(piece: Node): PieceEntry {
@@ -143,29 +199,48 @@ export class PiecePool extends Component {
             .start();
     }
 
-    /** 吸附成功后这块碎片就没了 —— 缺口自己会把修好的图显示出来。
+    /** 单片那条路（玩家自己吸附成功）。实现在 `consumeAll` 里。 */
+    consume(entry: PieceEntry): void {
+        this.consumeAll([entry]);
+    }
+
+    /** 用掉一批碎片（自动打关整屏一起放）—— 单片和整屏共用这一份实现。
+     *
+     *  用掉的碎片就没了 —— 缺口自己会把修好的图显示出来。
      *  `updateLayout(true)` 那一下是瞬移，而且 content 尺寸变化引起的 ScrollView 边界重算
      *  也在同一次调用里同步落定（`SIZE_CHANGED` → `_calculateBoundary`），所以先记下旧的世界位置，
      *  排完之后再把碎片放回去、让他们照着 tween 滑过去。用世界位置而不是本地位置：
-     *  这一下 content 自己也会挪（左贴边），本地位移和屏幕上的位移对不上。
+     *  这一下 content 自己也会挪（重新居中），本地位移和屏幕上的位移对不上。
      *
      *  关掉「自动补位」时走另一条路：**把顶位节点留在原地**。它在 Layout 眼里就是刚被用掉那块，
      *  子节点一个没少，排不出任何变化 —— 剩下的碎片待在原地不动，用掉的位置空在那儿。
-     *  （不是「把补位时长调成 0」：那样位置还是会重排，只是瞬移。） */
-    consume(entry: PieceEntry): void {
-        const rest = this._entries.filter((e) => e !== entry);
+     *  （不是「把补位时长调成 0」：那样位置还是会重排，只是瞬移。）
+     *
+     *  ⚠️ **一批必须一次调完，别拆成 N 次 `consume`**：下面那个补位循环起手就
+     *  `Tween.stopAllByTarget(node)`，而它拉的是「还在 `_entries` 里的碎片」——
+     *  半空中的碎片也在里面（`takeOut` 只换节点父级，entry 还留着）。拆开调的话，
+     *  后一块的飞行 tween 会被前一块引起的补位掐掉，它就永远落不了地，链条卡死。
+     *  一起调还顺带只排一次版、只滑一次位。 */
+    consumeAll(entries: PieceEntry[]): void {
+        const rest = this._entries.filter((e) => entries.indexOf(e) < 0);
         const from = this.reflow ? rest.map((e) => e.piece.worldPosition.clone()) : [];
 
-        if (this.reflow) this.dropSpacer(entry);
-        else this._gaps.push(entry);
-
-        this.factory.recycle(entry.piece);
-        const i = this._entries.indexOf(entry);
-        if (i >= 0) this._entries.splice(i, 1);
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+            if (this.reflow) this.dropSpacer(entry);
+            else this._gaps.push(entry);
+            this.factory.recycle(entry.piece);
+        }
+        for (let i = 0; i < entries.length; i++) {
+            const k = this._entries.indexOf(entries[i]);
+            if (k >= 0) this._entries.splice(k, 1);
+        }
 
         const layout = this.content.getComponent(Layout);
         if (layout) {
             layout.updateLayout(true);
+            // 居中要排在读 `to` 前面：下面补位 tween 的目标是现读的世界坐标，先挪了才读得准
+            centerLayoutContent(this.content);
 
             for (let k = 0; k < from.length; k++) {
                 const node = rest[k].piece;
@@ -176,14 +251,21 @@ export class PiecePool extends Component {
             }
         }
 
-        // 这一屏用光了：补上下一屏。重抛一次 POOL_BUILT 是因为横屏那栏的宽度是照池子内容量的
-        //（`LandscapeLayout.onPoolBuilt`），换了一批就可能换了最宽的那块。
-        if (this._entries.length === 0 && this._next < this._data.length) {
-            // 这一屏的空位该收了，不然新一屏会排在它们右边、滚出可视区
-            this.clearGaps();
-            this.buildBatch(true);
-            EventBus.emit(GameEvent.POOL_BUILT, this._entries);
-        }
+        // 这一屏用光了：补上下一屏
+        if (this._entries.length === 0) this.buildMore();
+    }
+
+    /** 摆出下一屏。池子平时一次只摆一屏（多摆的两头会露到裁剪窗外被裁掉），
+     *  自动打关要「一次飞几批」时由 `AutoPlayer` 连着叫几次把它一次摆够。
+     *
+     *  重抛一次 `POOL_BUILT` 是因为横屏那栏的宽度是照池子内容量的（`LandscapeLayout.onPoolBuilt`），
+     *  换了一批就可能换了最宽的那块。 */
+    buildMore(): void {
+        if (this._next >= this._data.length) return;
+        // 上一屏的空位该收了，不然新一屏会排在它们右边、滚出可视区
+        this.clearGaps();
+        this.buildBatch(true);
+        EventBus.emit(GameEvent.POOL_BUILT, this._entries);
     }
 
     returnAll(): void {

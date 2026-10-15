@@ -116,13 +116,13 @@
             "_value": false
           },
           "particle-2d": {
-            "_value": false
+            "_value": true
           },
           "audio": {
             "_value": true
           },
           "video": {
-            "_value": false
+            "_value": true
           },
           "webview": {
             "_value": false
@@ -190,9 +190,7 @@
             "_value": false
           }
         },
-        "flags": {
-          "LOAD_SPINE_MANUALLY": false
-        },
+        "flags": {},
         "includeModules": [
           "2d",
           "affine-transform",
@@ -204,8 +202,10 @@
           "gfx-webgl2",
           "graphics",
           "mask",
+          "particle-2d",
           "tween",
-          "ui"
+          "ui",
+          "video"
         ],
         "noDeprecatedFeatures": {
           "value": false,

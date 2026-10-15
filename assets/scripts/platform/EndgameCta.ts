@@ -16,7 +16,7 @@ const { ccclass, property } = _decorator;
  *
  * 为什么不做一块全屏遮罩去接点击：节点处理器**只看 `hitTest` 就认领触摸**，跟有没有监听器无关，
  * 而深节点优先 —— 全屏遮罩挡不住池子里的 `content`，只会让全局 `input` 一起收不到。
- * 所以是「让玩法不要认领」，见 CLAUDE.md §14。
+ * 所以是「让玩法不要认领」，见 AGENTS.md §14。
  */
 @ccclass('EndgameCta')
 export class EndgameCta extends Component {

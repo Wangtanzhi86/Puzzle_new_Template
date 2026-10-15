@@ -1,5 +1,5 @@
 /**
- * 结束界面那个大按钮的外观接线，和 `Canvas/GameCta` 同一套做法（见 CLAUDE.md §14「游戏中常驻的下载按钮」）。
+ * 结束界面那个大按钮的外观接线，和 `Canvas/GameCta` 同一套做法（见 AGENTS.md §14「游戏中常驻的下载按钮」）。
  *
  *   node tools/exec.mjs scene tools/js/mount-end-cta.js
  *

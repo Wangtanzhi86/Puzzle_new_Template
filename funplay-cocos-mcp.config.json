@@ -1,16 +1,16 @@
 {
   "host": "127.0.0.1",
-  "port": 21561,
+  "port": 27502,
   "portMode": "project",
   "clientConfigEntries": {
     "claude_code": {
-      "serverName": "cocos-puzzle-new-t-3a650f",
-      "url": "http://127.0.0.1:21561/",
+      "serverName": "cocos-puzzle-new-t-53d60f",
+      "url": "http://127.0.0.1:27502/",
       "configPath": "C:\\Users\\Administrator\\.claude.json",
-      "projectIdentity": "3a650f39eaf1c5e8cd738727"
+      "projectIdentity": "53d60f1ef62621a0247c5beb"
     }
   },
-  "toolProfile": "full",
+  "toolProfile": "custom",
   "enabledTools": [],
   "disabledTools": [],
   "enabledToolCategories": [],

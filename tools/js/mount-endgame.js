@@ -1,5 +1,5 @@
 /**
- * 终局跳转接线，配套 `assets/scripts/platform/EndgameCta.ts`（见 CLAUDE.md §14）。
+ * 终局跳转接线，配套 `assets/scripts/platform/EndgameCta.ts`（见 AGENTS.md §14）。
  *
  *   node tools/exec.mjs scene tools/js/mount-endgame.js
  *
@@ -36,7 +36,7 @@ fw.alignMode = cc.Widget.AlignMode.ON_WINDOW_RESIZE;
 fw.isAlignTop = fw.isAlignBottom = fw.isAlignLeft = fw.isAlignRight = true;
 fw.isAlignHorizontalCenter = fw.isAlignVerticalCenter = false;
 fw.top = fw.bottom = fw.left = fw.right = 0;
-// WidgetManager 的整树重排要等下一次 AFTER_UPDATE，编辑模式不一定跑得到（见 CLAUDE.md §14）
+// WidgetManager 的整树重排要等下一次 AFTER_UPDATE，编辑模式不一定跑得到（见 AGENTS.md §14）
 fw.updateAlignment();
 
 const ctrl = cta.getComponent('EndgameCta') || cta.addComponent('EndgameCta');

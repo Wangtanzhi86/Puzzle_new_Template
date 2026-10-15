@@ -30,14 +30,16 @@ export class DragController extends Component {
         content.on(NodeEventType.TOUCH_CANCEL, this.onEnd, this);
         EventBus.on(GameEvent.PIECE_SNAP_SUCCESS, this.onSnapSuccess, this);
         EventBus.on(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
-        EventBus.on(GameEvent.GAME_OVER, this.onGameOver, this);
+        EventBus.on(GameEvent.GAME_OVER, this.takeOver, this);
+        EventBus.on(GameEvent.AUTO_PLAY, this.takeOver, this);
     }
 
     protected onDisable(): void {
         this.unbindContent();
         EventBus.off(GameEvent.PIECE_SNAP_SUCCESS, this.onSnapSuccess, this);
         EventBus.off(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
-        EventBus.off(GameEvent.GAME_OVER, this.onGameOver, this);
+        EventBus.off(GameEvent.GAME_OVER, this.takeOver, this);
+        EventBus.off(GameEvent.AUTO_PLAY, this.takeOver, this);
     }
 
     /** 摘掉 `content` 上的触摸监听。最后一个监听被移除时引擎会把整个节点处理器移出派发表，
@@ -105,9 +107,11 @@ export class DragController extends Component {
         }
     }
 
-    /** 终局：拖拽到此为止。监听已经摘了，手上那块就得自己放回去（不走 `release()`，
-     *  免得把 `PiecePool` 刚锁上的滚动又解回来 —— 两条监听谁先跑不由这里决定）。 */
-    private onGameOver(): void {
+    /** 收工：终局（`GAME_OVER`）或系统接管（`AUTO_PLAY`），拖拽都到此为止。
+     *  监听已经摘了，手上那块就得自己放回去（不走 `release()`，
+     *  免得把 `PiecePool` 刚锁上的滚动又解回来 —— 两条监听谁先跑不由这里决定）。
+     *  放回去的这块正是 `AutoPlayer` 接下来第一个要飞的（它排在池子最前面）。 */
+    private takeOver(): void {
         this.unbindContent();
         if (!this._entry) return;
         const entry = this._entry;
