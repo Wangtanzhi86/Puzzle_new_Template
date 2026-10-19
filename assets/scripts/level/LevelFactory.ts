@@ -40,7 +40,6 @@ export class LevelFactory extends Component {
                 index: i,
                 node: slot.node,
                 slot,
-                snapRadius: slot.radius,
                 overlays: [],
                 overlayMode: slot.overlayMode,
             });

@@ -85,6 +85,9 @@ export class AudioCue {
 
     @property({ type: Enum(AudioEvent), displayName: '结束事件', tooltip: '选「NONE」= 不主动停：一次性音效播完即止，常驻的一直循环' })
     stopEvent: AudioEvent = AudioEvent.NONE;
+
+    @property({ displayName: '结束事件的槽位', tooltip: '只对「结束事件」有效：-1 = 事件一来就停；≥0 = 只有载荷第一个参数（槽位号）等于它才停。例：风声「结束事件」选 PIECE_REPAIRED、这里填 0，就和 FxSnow 在同一个槽位停下' })
+    stopSlot = -1;
 }
 
 /** 一条配置对应一个 AudioSource：共用一份就停不掉单条 */
@@ -222,7 +225,11 @@ export class AudioManager extends Component {
                 this.unlock();
                 this.playCue(ch);
             };
-            ch.onStop = (): void => this.stopChannel(ch);
+            const slot = cue.stopSlot;
+            ch.onStop = (idx?: number): void => {
+                if (slot >= 0 && idx !== slot) return;
+                this.stopChannel(ch);
+            };
             if (!ch.resident) {
                 if (cue.event === AudioEvent.BUTTON_DOWN) {
                     for (const btn of this.buttons) btn.on(Node.EventType.TOUCH_START, ch.onButton, this);

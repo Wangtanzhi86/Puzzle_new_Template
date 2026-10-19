@@ -1,6 +1,7 @@
-import { _decorator, Component, screen, Sprite, UITransform, view } from 'cc';
+import { _decorator, Component, screen, Sprite, UITransform } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
+import { frameSize, visibleSize } from '../core/UISpace';
 import { LevelFactory } from '../level/LevelFactory';
 import { applyScreenPolicy } from '../ui/ScreenAdapter';
 
@@ -33,8 +34,8 @@ export class GameEntry extends Component {
             const ut = (p: string) => c.getChildByPath(p).getComponent(UITransform);
             const bg = c.getChildByPath('BackgroundLayer/Bg_Sprite');
             const sp = bg.getComponent(Sprite);
-            console.log('[Probe] frame=' + JSON.stringify(view.getFrameSize())
-                + ' visible=' + JSON.stringify(view.getVisibleSize())
+            console.log('[Probe] frame=' + JSON.stringify(frameSize())
+                + ' visible=' + JSON.stringify(visibleSize())
                 + ' canvas=' + c.getComponent(UITransform).width + 'x' + c.getComponent(UITransform).height
                 + ' layer=' + ut('BackgroundLayer').height
                 + ' bg=' + ut('BackgroundLayer/Bg_Sprite').width + 'x' + ut('BackgroundLayer/Bg_Sprite').height
@@ -64,6 +65,6 @@ export class GameEntry extends Component {
 
 /** 用窗口真实比例判方向：撑满之后 getVisibleSize() 跟着策略走，方形窗口会被它判成竖屏。 */
 function isPortrait (): boolean {
-    const frame = view.getFrameSize();
+    const frame = frameSize();
     return frame.height >= frame.width;
 }

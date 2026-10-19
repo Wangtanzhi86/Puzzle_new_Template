@@ -35,6 +35,7 @@ export class EventBus {
         }
     }
 
+    /** 监听方只收到载荷，**收不到事件名** —— 需要区分事件名的（effects/EventTrigger）自己按事件包一层 */
     static emit(event: string, ...args: any[]): void {
         const list = EventBus._map.get(event);
         if (!list) return;

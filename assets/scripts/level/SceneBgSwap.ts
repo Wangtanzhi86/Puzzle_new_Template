@@ -1,4 +1,4 @@
-import { _decorator, Component, EffectAsset, Material, ParticleSystem2D, Sprite, Tween, UITransform, Vec3, Vec4, gfx, tween, v3 } from 'cc';
+import { _decorator, Component, EffectAsset, Material, Node, ParticleSystem2D, Sprite, Tween, UIOpacity, UITransform, Vec3, Vec4, gfx, tween, v3 } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
 import { makeDotFrame } from '../core/DotTexture';
@@ -40,7 +40,7 @@ export class SceneBgSwap extends Component {
     @property({ type: ParticleSystem2D, displayName: '魔法仙尘', tooltip: '笔头走到哪撒到哪。参数全在这个粒子节点上；⚠️ 把它的「加载时播放」关掉（起停由本组件管）。留空就不撒粒子。⚠️「直接亮出来」勾着时不起作用' })
     dust: ParticleSystem2D = null;
 
-    @property({ displayName: '开演前等待（秒）', tooltip: '最后一格露面之后先等这么久再落笔／再亮。⚠️ 它和 `RepairSweep` 的「总修复：开演前定格 + 时长」是一对，改一边要看另一边；扫光开关关着时填 0' })
+    @property({ displayName: '开演前等待（秒）', tooltip: '⚠️ 只对「直接亮出来」生效：最后一块落位之后先等这么久再亮。画笔模式不读它（最后一个 PIECE_SHOWN 当刻就落笔）。它和 `RepairSweep` 的「总修复：开演前定格 + 时长」是一对，改一边要看另一边；扫光开关关着时填 0' })
     delay = 0;
 
     @property({ displayName: '涂完时长（秒）', tooltip: '⚠️「直接亮出来」勾着时不起作用' })
@@ -54,6 +54,15 @@ export class SceneBgSwap extends Component {
 
     @property({ displayName: '笔触羽化（相对半径）', tooltip: '越大笔迹边越虚；0 = 硬边。⚠️「直接亮出来」勾着时不起作用' })
     feather = 0.25;
+
+    @property({ type: [Node], displayName: '完成图出现时收掉的节点', tooltip: '成图里已经画好的那些活节点（换人的 Spine、破损图替身之类）—— 完成图一亮它们就盖在成图上，看起来像「穿模」。留空不影响' })
+    hideAtComplete: Node[] = [];
+
+    @property({ type: [Node], displayName: '开演前收掉的节点', tooltip: '亮图 / 落笔之前先淡出这些节点（例：BrokenLayer 的破损碎片、碎片池、进度条）—— 免得画笔刷过去时底下还露着它们。两种模式都生效。⚠️ 留空会自动按名字收：GameLayer/BrokenLayer、Canvas/PiecePoolLayer、DragRoot、GameCta、UILayer/GuideLayer、UILayer/ProgressLayer（编辑器存盘时把这里清空也不至于整场露底）' })
+    hideBeforeReveal: Node[] = [];
+
+    @property({ displayName: '收场淡出时长（秒）', tooltip: '「开演前收掉的节点」淡出多久；填 0 = 当场收掉' })
+    hideFadeTime = 0.3;
 
     private _total = 0;
     private _shown = 0;
@@ -87,6 +96,7 @@ export class SceneBgSwap extends Component {
         EventBus.off(GameEvent.LEVEL_COMPLETE, this.onLevelComplete, this);
         EventBus.off(GameEvent.PIECE_SHOWN, this.onShown, this);
         this.unschedule(this.reveal);
+        this.unschedule(this.startBrush);
         if (this._mat) this.abort();
     }
 
@@ -115,10 +125,42 @@ export class SceneBgSwap extends Component {
         if (this.instant) this.endShow();
     }
 
+    /** 没在 Inspector 上填「开演前收掉的节点」时的兜底：按层级名字现找，免得场景存盘把数组清掉就整场露底 */
+    private layersByName(): Node[] {
+        const game = this.node.parent;
+        const canvas = game ? game.parent : null;
+        const ui = canvas ? canvas.getChildByName('UILayer') : null;
+        const pick: (Node | null)[] = [
+            game ? game.getChildByName('BrokenLayer') : null,
+            canvas ? canvas.getChildByName('PiecePoolLayer') : null,
+            canvas ? canvas.getChildByName('DragRoot') : null,
+            canvas ? canvas.getChildByName('GameCta') : null,
+            ui ? ui.getChildByName('GuideLayer') : null,
+            ui ? ui.getChildByName('ProgressLayer') : null,
+        ];
+        return pick.filter((n): n is Node => !!n);
+    }
+
+    /** 收场：让这些节点在 time 秒里淡到 0 再隐藏（time ≤ 0 当刻收）—— 硬收会「啪」一下，淡出跟画笔同拍更顺 */
+    private fadeOut(nodes: Node[], time: number): void {
+        for (const n of nodes) {
+            if (!n || !n.active) continue;
+            if (time <= 0) {
+                n.active = false;
+                continue;
+            }
+            let op = n.getComponent(UIOpacity);
+            if (!op) op = n.addComponent(UIOpacity);
+            Tween.stopAllByTarget(op);
+            tween(op).to(time, { opacity: 0 }).call(() => { n.active = false; }).start();
+        }
+    }
+
     /** 亮出完成图。两种模式都走这儿，`_revealed` 保证只做一次 */
     private reveal(): void {
         if (this._revealed) return;
         this._revealed = true;
+        this.fadeOut(this.hideBeforeReveal.length > 0 ? this.hideBeforeReveal : this.layersByName(), this.hideFadeTime);
         if (this.instant || !this.brushEffect || !this.revealView) {
             // 「直接亮出来」（或没配画笔材质 / 没收尾节点）：当刻收尾。
             // 没配画笔材质那条**也要收尾**，否则完成图根本不会出现，玩家看到的还是线稿
@@ -127,6 +169,16 @@ export class SceneBgSwap extends Component {
             this.endShow();
             return;
         }
+        // 收场淡出走完才起笔 —— 画笔落下的那一刻，破损碎片已经收干净了
+        if (this.hideFadeTime > 0) {
+            this.scheduleOnce(this.startBrush, this.hideFadeTime);
+            return;
+        }
+        this.startBrush();
+    }
+
+    private startBrush(): void {
+        if (!this.revealView) return;
         const view = this.revealView;
         view.node.active = true;
 
@@ -235,6 +287,7 @@ export class SceneBgSwap extends Component {
     /** 把完成背景那张贴图挪到本节点上、把 `完成背景` 收掉 —— 两种模式的收尾都走这儿，
      *  最终画面就是一个节点、一张不透明的底图，不留一层常驻的透明覆盖。 */
     private complete(): void {
+        for (const n of this.hideAtComplete) if (n) n.active = false;
         const view = this.revealView;
         if (!view) return;
         this.getComponent(Sprite).spriteFrame = view.spriteFrame;

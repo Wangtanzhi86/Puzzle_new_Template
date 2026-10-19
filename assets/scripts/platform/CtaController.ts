@@ -35,6 +35,9 @@ export class CtaController extends Component {
     @property({ type: MraidBridge, displayName: 'MRAID 桥' }) bridge: MraidBridge = null;
     @property({ type: EndVideo, displayName: '结尾视频', tooltip: '留空 = 不演视频，`END_SHOW` 一到就亮结束界面' }) endVideo: EndVideo = null;
 
+    @property({ type: [Node], displayName: '结束界面出现时收掉的节点', tooltip: '亮卡之前先收掉这些 gameplay 节点（例：BrokenLayer）—— 它们会被结束卡盖住，留着只是白画' })
+    hideNodes: Node[] = [];
+
     @property({ displayName: '背景淡入时长（秒）', tooltip: '淡完这两个才开始往下落' }) bgFadeTime = 0.25;
     @property({ displayName: '下落时长（秒）' }) dropTime = 0.5;
     @property({ displayName: '出发高度（屏幕顶边之上 px）', tooltip: '两个都从这儿起步，再落到编辑器里摆好的位置' }) dropMargin = 140;
@@ -76,6 +79,7 @@ export class CtaController extends Component {
 
     show(): void {
         if (!this.ctaRoot) return;
+        for (const n of this.hideNodes) if (n) n.active = false;
         this.ctaRoot.active = true;
         if (this._fade) {
             this._fade.opacity = 0;

@@ -122,7 +122,7 @@
             "_value": true
           },
           "video": {
-            "_value": true
+            "_value": false
           },
           "webview": {
             "_value": false
@@ -149,7 +149,7 @@
             "_value": false
           },
           "spine": {
-            "_value": false,
+            "_value": true,
             "_option": "spine-3.8"
           },
           "spine-3.8": {
@@ -190,7 +190,9 @@
             "_value": false
           }
         },
-        "flags": {},
+        "flags": {
+          "LOAD_SPINE_MANUALLY": false
+        },
         "includeModules": [
           "2d",
           "affine-transform",
@@ -203,9 +205,9 @@
           "graphics",
           "mask",
           "particle-2d",
+          "spine-3.8",
           "tween",
-          "ui",
-          "video"
+          "ui"
         ],
         "noDeprecatedFeatures": {
           "value": false,

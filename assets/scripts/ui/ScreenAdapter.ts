@@ -1,4 +1,5 @@
-import { ResolutionPolicy, view } from 'cc';
+import { ResolutionPolicy } from 'cc';
+import { applyResolution, designSize, frameSize } from '../core/UISpace';
 
 /** 引擎启动时按项目设置应用的是 SHOW_ALL（fitHeight + fitWidth 都开），这里记住当前生效的那条。 */
 let current = ResolutionPolicy.SHOW_ALL;
@@ -14,11 +15,13 @@ let current = ResolutionPolicy.SHOW_ALL;
  * 横屏的比例恒大于设计稿的 720/1280，所以横屏补出来的是宽度，画布是 1770×1280 这种宽幅。
  * 玩法内容三处都不贴边，于是整块竖版构图居中停在屏幕中间，两侧由背景铺满（见 AGENTS.md §7.1）。
  *
+ * `view.*` 一律走 `core/UISpace` —— 坐标系只有那一个出口（见该文件头注释）。
+ *
  * @returns 策略是否变了。变了说明画布尺寸会动（世界坐标跟着动），调用方该收掉手里那块碎片之类。
  */
 export function applyScreenPolicy (): boolean {
-    const frame = view.getFrameSize();
-    const design = view.getDesignResolutionSize();
+    const frame = frameSize();
+    const design = designSize();
 
     const policy = frame.width / frame.height >= design.width / design.height
         ? ResolutionPolicy.FIXED_HEIGHT
@@ -26,6 +29,6 @@ export function applyScreenPolicy (): boolean {
 
     if (policy === current) return false;
     current = policy;
-    view.setDesignResolutionSize(design.width, design.height, policy);
+    applyResolution(design, policy);
     return true;
 }

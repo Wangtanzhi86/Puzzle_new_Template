@@ -1,10 +1,11 @@
-import { _decorator, Component, Node, Rect, Sprite, SpriteFrame, UIOpacity, UITransform, Vec3, tween } from 'cc';
+import { _decorator, Component, Node, ParticleSystem2D, Rect, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, Vec3, tween, v3 } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
 import { OverlayMode } from '../data/LevelTypes';
 import { BrushReveal } from '../gameplay/BrushReveal';
 import { CircleReveal } from '../gameplay/CircleReveal';
 import { RepairReveal } from '../gameplay/RepairReveal';
+import { SnapReveal } from '../gameplay/SnapReveal';
 import { StickerApply } from '../gameplay/StickerApply';
 import { PeelConfig } from '../gameplay/StickerPeel';
 import { BroomSweep } from './BroomSweep';
@@ -34,11 +35,14 @@ export class PieceSlot extends Component {
     @property({ displayName: '碎片序号', tooltip: '碎片池按它排列，也决定这块碎片属于哪个缺口' })
     pieceId = 0;
 
-    @property({ displayName: '吸附半径（px）', tooltip: '0 表示按下面的半径比自动算' })
+    @property({ displayName: '吸附半径（px）', tooltip: '只在 SnapSystem「吸附范围形状」= 圆（0）时生效：圆形半径，0 = 按下一条自动算。矩形模式（默认）不读它，读下面的「矩形吸附比例」' })
     snapRadius = 0;
 
-    @property({ displayName: '吸附半径比', tooltip: '相对缺口短边。只在上一项为 0 时生效' })
+    @property({ displayName: '吸附半径比', tooltip: '圆形模式 + 上一项为 0 时生效：缺口短边 × 这个值 = 圆形半径（不是半宽半高；矩形模式看「矩形吸附比例」）' })
     snapRadiusRatio = 0.25;
+
+    @property({ displayName: '矩形吸附比例（本格）', tooltip: '只在「吸附范围形状」= 矩形时生效：修复图半宽 / 半高各乘这个值就是吸附范围。0 = 用 SnapSystem 上的全局值' })
+    snapRatio = 0;
 
     @property({ type: OverlayMode, displayName: '遮挡层显示时机' })
     overlayMode = OverlayMode.ON_COMPLETE;
@@ -66,6 +70,12 @@ export class PieceSlot extends Component {
     @property({ displayName: '换节点渐显时长（秒）', tooltip: '换的那一下两个角色交叉淡入淡出（两边都要挂 UIOpacity）；填 0 就是硬切' })
     swapFadeTime = 0.25;
 
+    @property({ displayName: '吸附后整格隐藏（跳过全部揭晓）', tooltip: '打勾 = 这一格不走任何揭晓，破损图 / 修复图「化掉」，配了「换掉」两个节点时再交叉淡入换成它' })
+    hideOnRepair = false;
+
+    @property({ type: ParticleSystem2D, displayName: '换人时撒的仙尘', tooltip: '只在勾了「吸附后整格隐藏」时用：换人那一刻在人物位置喷一下。建议直接填完成背景那个「魔法仙尘」—— 它一旦被画笔接管（节点开始跟着笔头走）这里就不再停它。留空就不撒' })
+    swapDust: ParticleSystem2D = null;
+
     @property({ type: SpriteFrame, displayName: '碎片池用图', tooltip: '只在池里（拿在手上）显示的图。留空则退回修复后的图' })
     poolSprite: SpriteFrame = null;
 
@@ -83,6 +93,9 @@ export class PieceSlot extends Component {
 
     @property({ type: BrushReveal, displayName: '画笔涂色揭晓', tooltip: '从左上角起笔斜着来回刷到右下角，刷过的地方才显示修复图（没刷到的仍是底下那张破损图）。填了它这一格就整格走它 —— 和上面那些揭晓只能填一个' })
     brushReveal: BrushReveal = null;
+
+    @property({ type: SnapReveal, displayName: '吸附瞬间揭晓', tooltip: 'CopyPuzzle 那套吸附时序：修复图弹一下、淡掉、再从圆心扩出来（带边缘提亮 + 水平波纹）。填了它、并且 Canvas 上的「吸附瞬间时序」开关开着，这一格就整格走它 —— 下面所有揭晓（贴纸 / 画笔 / 圆扩散 / 序列帧 / 换节点）都不再发生' })
+    snapReveal: SnapReveal = null;
 
     @property({ type: StickerApply, displayName: '贴纸贴平揭晓', tooltip: '和碎片揭角反着演：修复图整张出现在缺口上、一角还翘着，再把折线推向对边按平。填了它这一格就整格走它 —— 和「圆形扩散揭晓」只能填一个，两个都填时走它' })
     stickerApply: StickerApply = null;
@@ -154,6 +167,11 @@ export class PieceSlot extends Component {
         return this.repairedView ? this.worldBoxOf(this.repairedView.node).height : this.height;
     }
 
+    /** 同 `carryHeight` 的横向版本 —— 矩形吸附判据按轴各给一个比例，x 用这个、y 用那个 */
+    get carryWidth(): number {
+        return this.repairedView ? this.worldBoxOf(this.repairedView.node).width : this.width;
+    }
+
     /** 这一格这次修复该展示的那张「修复后」：达标（前置槽位都修好了）走替换图，没达标走原来那张。
      *  揭晓（序列帧 / 圆形扩散 / 扫光）都读它，所以没达标那一下扩散盖住的是「未达标」那张。 */
     get showView(): RepairedSlot {
@@ -212,9 +230,21 @@ export class PieceSlot extends Component {
         // 并抛一次失败事件 —— 这一格照旧算修好（进度照加），怎么终局由听这条事件的人决定
         this._met = this.meetsRequires();
         if (this.altView && !this._met) EventBus.emit(GameEvent.REPAIR_FAILED, slotIndex);
+        // 整格隐藏（换人那格）：不演任何揭晓 —— 破损图 / 修复图化掉，隔 swapDelay 两个角色交叉淡入
+        if (this.hideOnRepair) {
+            this.softSwap();
+            return true;
+        }
         // 贴纸贴平：修复图整张出现（翘着一个角）再按平贴上去。破损图**吸附这一刻就收掉** ——
         // 修复图从第一帧起就铺满整个缺口，翘起来那个角露的是贴纸背面，底下不用垫图。
         // 和圆形扩散一样是整格接管，两个都填时走它（见那个 @property 的 tooltip）
+        // 吸附瞬间揭晓（CopyPuzzle 时序）：排在最前面 —— 它演的是「碎片刚贴上去」那一下，
+        // 和下面任何一个揭晓都互斥，填了它并打开开关就整格走它。关掉开关时 handles() 返 false，
+        // 整条自然回退到下面的原有顺序（所以不需要另写一份「回退」代码）
+        if (this.snapReveal && this.snapReveal.handles(this)) {
+            this.snapReveal.play(this, this.covered);
+            return true;
+        }
         if (this.stickerApply && this.stickerApply.handles(this)) {
             this.hideBroken();
             this.stickerApply.play(this, this.shown);
@@ -313,4 +343,78 @@ export class PieceSlot extends Component {
         const view = this.showView;
         if (view) view.hide();
     };
+
+    /** 「吸附后整格隐藏」那一支（换人那格）：碎片先放大一点淡出，隔 swapDelay 把旧角色淡出、
+     *  新角色淡入并在原地弹一下，同时在人物位置撒一把仙尘，整段演完才算这一格露面。
+     *  时长全部复用 swapDelay / swapFadeTime，没有另加数字。 */
+    private softSwap(): void {
+        const T = this.swapFadeTime;
+        this.fadeOutNode(this.brokenView.node, T);
+        if (this.hideWithBroken) this.fadeOutNode(this.hideWithBroken, T);
+        if (this.repairedView) this.fadeOutNode(this.repairedView.node, T);
+        if (!this.swapHide || !this.swapShow) {
+            this.scheduleOnce(this.spotDone, T);
+            return;
+        }
+        this.scheduleOnce(() => {
+            const show = this.swapShow;
+            const hide = this.swapHide;
+            show.active = true;
+            if (T > 0) {
+                const showOp = this.opacityOf(show);
+                const hideOp = this.opacityOf(hide);
+                showOp.opacity = 0;
+                tween(showOp).to(T, { opacity: 255 }).start();
+                tween(hideOp)
+                    .to(T, { opacity: 0 })
+                    .call(() => { hide.active = false; })
+                    .start();
+                // 新角色从 0.92 弹回原大：淡入那一下不至于「平着浮上来」
+                const base = show.scale.clone();
+                Tween.stopAllByTarget(show);
+                show.setScale(base.x * 0.92, base.y * 0.92, base.z);
+                tween(show).to(T * 1.2, { scale: base }, { easing: 'backOut' }).start();
+            } else {
+                hide.active = false;
+            }
+            this.dustBurst();
+            this.scheduleOnce(this.spotDone, T);
+        }, this.swapDelay);
+    }
+
+    /** 轻微放大 + 淡出，然后隐藏 —— 硬切的替代品。节点没有 UIOpacity 就补一个（只加组件、不建节点） */
+    private fadeOutNode(node: Node, time: number): void {
+        if (!node || !node.active) return;
+        const op = this.opacityOf(node);
+        const base = node.scale.clone();
+        Tween.stopAllByTarget(node);
+        Tween.stopAllByTarget(op);
+        tween(node).to(time, { scale: v3(base.x * 1.06, base.y * 1.06, base.z) }, { easing: 'quadOut' }).start();
+        tween(op)
+            .to(time, { opacity: 0 })
+            .call(() => { node.active = false; })
+            .start();
+    }
+
+    private opacityOf(node: Node): UIOpacity {
+        let op = node.getComponent(UIOpacity);
+        if (!op) op = node.addComponent(UIOpacity);
+        return op;
+    }
+
+    /** 换人那一下的仙尘：借完成背景那个粒子，在人物位置喷一下、过一会儿停掉。
+     *  ⚠️ 完成背景的画笔也用它 —— 画笔一旦开始每帧挪这个节点，就说明已经交给它了，这里别再停系统。 */
+    private dustBurst(): void {
+        const dust = this.swapDust;
+        if (!dust) return;
+        // swapShow 进场那一刻才 active，世界坐标要现算一次再用
+        this.swapShow.updateWorldTransform();
+        dust.node.setWorldPosition(this.swapShow.worldPosition);
+        const at = dust.node.position.clone();
+        dust.resetSystem();
+        this.scheduleOnce(() => {
+            const p = dust.node.position;
+            if (p.x === at.x && p.y === at.y && p.z === at.z) dust.stopSystem();
+        }, this.swapFadeTime * 2.5);
+    }
 }

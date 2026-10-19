@@ -1,7 +1,8 @@
-import { _decorator, Component, Layout, Node, ScrollView, UITransform, Vec3, Widget, view } from 'cc';
+import { _decorator, Component, Layout, Node, ScrollView, UITransform, Vec3, Widget } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
-import { centerLayoutContent } from '../gameplay/PiecePool';
+import { visibleSize } from '../core/UISpace';
+import { centerLayoutContent, PiecePool } from '../gameplay/PiecePool';
 
 const { ccclass, property } = _decorator;
 
@@ -91,9 +92,9 @@ export class LandscapeLayout extends Component {
             contentW: sv.content.getComponent(UITransform).width, contentH: sv.content.getComponent(UITransform).height,
             type: layout.type, spacingY: layout.spacingY,
             padL: layout.paddingLeft, padR: layout.paddingRight, padT: layout.paddingTop, padB: layout.paddingBottom,
-            // `horizontal` 不存也不还 —— 它归 `PiecePool.onLoad` 管，一直是 false（关掉才轮得到
-            // `centerLayoutContent` 说话）。这里存了反而会还错：`onLoad` 排在 `PiecePool.onLoad` 前面，
-            // 记下的是场景里那个旧值，转一圈回来就把居中的前提拆了。
+            // `horizontal` 不存也不还 —— 它归 `PiecePool` 管：BATCH 模式恒为 false（居中的前提），
+            // SCROLL 模式按 Layout 主轴现定（`PiecePool.onOrientation` 在转屏这一帧之后重新拨）。
+            // 这里存了反而会还错：`onLoad` 排在 `PiecePool.onLoad` 前面，记下的是场景里那个旧值。
             vertical: sv.vertical,
         };
     }
@@ -140,7 +141,8 @@ export class LandscapeLayout extends Component {
         layout.paddingRight = p.padR;
         layout.paddingTop = p.padL;      // 竖栏上下也留边，取左右那个值
         layout.paddingBottom = p.padL;
-        // 横轴滚动一直是关的（`PiecePool.onLoad` 关的，那边解释了为什么），转屏也不用碰它，这里只管竖轴
+        // 竖轴这里先拨好；SCROLL 模式下 `PiecePool.onOrientation` 会在这一帧之后按主轴再统一拨一次
+        // （BATCH 模式横轴恒关，理由见 `PiecePool.onLoad`）
         sv.vertical = true;
         sv.node.getComponent(Widget).enabled = false;   // 竖屏那套边距是照 720×300 的条带配的，栏的尺寸下面自己算
         layout.updateLayout(true);
@@ -195,11 +197,13 @@ export class LandscapeLayout extends Component {
         // 半宽从 visibleSize 现读 —— 画布节点自己的 UITransform 要等下一次 Widget 重排才更新，
         // 此刻读到的还是竖屏那一版。竖屏那个底部 Widget 得先关掉，不然它会把 x 拽回 0。
         this.cta.getComponent(Widget).enabled = false;
-        this.cta.setPosition(-(view.getVisibleSize().width * 0.5 + totalW * 0.5) * 0.5, 0, 0);
+        this.cta.setPosition(-(visibleSize().width * 0.5 + totalW * 0.5) * 0.5, 0, 0);
 
-        // 竖栏也照碎片池那条规矩：整列几何中心对到栏的中线上，装不下就两头一起露在框外被 Mask 裁掉，
-        // 不滚（`PiecePool.centerLayoutContent` 看 `layout.type` 自己认主轴，这里也是 VERTICAL）
-        centerLayoutContent(sv.content);
+        // 竖栏也照碎片池那条规矩：BATCH 把整列几何中心对到栏的中线上（装不下就两头裁掉），
+        // SCROLL 则回到竖栏顶部（`PiecePool.alignContent` 看 `layout.type` 自己认主轴，这里也是 VERTICAL）
+        const pool = sv.node.parent ? sv.node.parent.getComponent(PiecePool) : null;
+        if (pool) pool.alignContent();
+        else centerLayoutContent(sv.content);
     }
 
     private restorePortrait(): void {
@@ -238,7 +242,9 @@ export class LandscapeLayout extends Component {
         sv.content.getComponent(UITransform).setContentSize(p.contentW, p.contentH);
         layout.updateLayout(true);
         svWidget.updateAlignment();
-        centerLayoutContent(sv.content);
+        const pool = sv.node.parent ? sv.node.parent.getComponent(PiecePool) : null;
+        if (pool) pool.alignContent();
+        else centerLayoutContent(sv.content);
 
         // 常驻按钮交回底部 Widget（`enabled = true` 会把它标脏，下一次重排自己算回竖屏位置）
         this.cta.setPosition(p.ctaPos.x, p.ctaPos.y, p.ctaPos.z);

@@ -36,3 +36,5 @@ extracted-audio/
 # 其余 .dsh/ 内容属于机器本地状态，不提交。
 .dsh/*
 !.dsh/skills/
+# 压缩前的美术原件（备份，不进仓库）
+_origin/

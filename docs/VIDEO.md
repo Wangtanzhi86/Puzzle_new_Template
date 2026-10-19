@@ -1,6 +1,8 @@
 # 结尾视频（§18 全文）
 
 > 从 `AGENTS.md` 拆出来。**动结尾视频 / 换片源 / 改播放区域** 之前读这一份。
+>
+> ⚠️ **当前已关**：`CtaController.endVideo` 留空，`END_SHOW` 一到直接亮结束界面；下面这些接线与参数都还在，重新挂上 `endVideo` 即可恢复。
 
 
 **是什么**：完成图亮出来（`END_SHOW`）之后，先在**拼图区**（`Scene_BG` 那个框）铺满播一段视频，
@@ -12,7 +14,7 @@
 | `Canvas/GameLayer/Scene_BG/结尾视频` | 节点：`cc.UITransform`（720×1280 占位，**故意不给 Widget**）+ `cc.VideoPlayer` + `EndVideo`；平时 `active = false` 睡着 |
 | `cc.VideoPlayer` | `clip` = 片源（**换片只动这一处**）；`mute = false`、`playOnAwake = false`、`keepAspectRatio = true`、`stayOnBottom = false` —— 后三项别改 |
 | `EndVideo` | `player` / `region`（**播放区域** = `Scene_BG`，现在两块同尺寸 582.39×840）/ `fallbackTime`（兜底秒数，见 [docs/TUNING.md](TUNING.md)） |
-| `CtaController.endVideo` | 指上面那个节点。**留空 = 不演视频**，`END_SHOW` 一到就亮结束界面 —— 这是退路，别删那个口 |
+| `CtaController.endVideo` | **现在是空**（= 不演视频，`END_SHOW` 一到就亮结束界面）。要恢复就在 `CtaLayer` 的 `CtaController` 上把「结尾视频」拖回 `Scene_BG/结尾视频` —— 这个口别删 |
 
 接线脚本 `tools/js/mount-end-video.js`（幂等）：
 

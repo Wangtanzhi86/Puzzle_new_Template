@@ -3,8 +3,9 @@ import { _decorator, Component, director } from 'cc';
 const { ccclass, property } = _decorator;
 
 /** 面板不在场时读这里（编辑器编辑模式、面板被误删）：全开，避免少一个开关就玩法残缺。
- *  唯一的例外是 `autoPlay` —— 它改的是玩法本身（玩家放几块之后系统接管），不是「多演一下少演一下」，
- *  面板丢了就该退回「玩家自己修完」的老行为，不是替他打完。 */
+ *  两个例外：`autoPlay` —— 它改的是玩法本身（玩家放几块之后系统接管），不是「多演一下少演一下」，
+ *  面板丢了就该退回「玩家自己修完」的老行为，不是替他打完；`snapReveal` —— 它是「换掉目标工程自己那套
+ *  修复揭晓，改用 CopyPuzzle 的吸附瞬间时序」，默认关着才是这套工程原本的样子。 */
 const DEFAULTS = {
     pieceGlow: true,
     stickerPeel: true,
@@ -19,6 +20,7 @@ const DEFAULTS = {
     progress: true,
     audio: true,
     autoPlay: false,
+    snapReveal: false,
 };
 
 /**
@@ -74,6 +76,9 @@ export class FeatureFlags extends Component {
     @property({ displayName: '音效' })
     audio = DEFAULTS.audio;
 
+    @property({ displayName: '吸附瞬间时序（CopyPuzzle）', tooltip: '开：修好那一刻改演 CopyPuzzle 那套 —— 修复图弹一下（0.6 秒内 0.96 → 1.1 → 1）、淡出到 0 再从圆心重新扩出来，扩散带边缘提亮和水平波纹。只有填了「吸附瞬间揭晓」的槽位走它，且整格接管（胶带 / 换节点 / 圆扩散 / 序列帧都不再发生）。关：整条回退到原来的揭晓' })
+    snapReveal = DEFAULTS.snapReveal;
+
     @property({ displayName: '自动打关', tooltip: '玩家自己修够几块之后系统接管，剩下的碎片一块接一块自动飞过去吸附。门槛与节奏在 GameLayer 的「自动打关」组件上' })
     autoPlay = DEFAULTS.autoPlay;
 
@@ -95,4 +100,5 @@ export class FeatureFlags extends Component {
     static get progress(): boolean { return (FeatureFlags.panel ?? DEFAULTS).progress; }
     static get audio(): boolean { return (FeatureFlags.panel ?? DEFAULTS).audio; }
     static get autoPlay(): boolean { return (FeatureFlags.panel ?? DEFAULTS).autoPlay; }
+    static get snapReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).snapReveal; }
 }

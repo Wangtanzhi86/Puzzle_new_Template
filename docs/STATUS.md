@@ -12,15 +12,15 @@
 | 项 | 值 |
 |---|---|
 | 槽位 | **23 个**：`Slot_01` … `Slot_23`；`pieceId` 实测是 `0,1,1,3,4,…,22` —— ⚠️ **有两个 1、没有 2**（§6 要求唯一，并列时退化成子节点顺序）。这几格是**换 23 片新美术**那轮改的，位置/序号还在调 |
-| 碎片池 | `batchSize = 3`（一屏 3 块，这一批用光才补下一批）、`batchFadeTime = 0.5`、**`reflow = false`**（自动补位**关着**，用掉的碎片留个空位）、**碎片间距 = 80（定值，`content` 的 Layout 上配，代码不再算）** |
+| 碎片池 | **`poolMode = BATCH`**（另一档 `SCROLL` = 整关全摆、可滑，见 §16 / `docs/TUNING.md`）、`batchSize = 3`（一屏 3 块，这一批用光才补下一批）、`batchFadeTime = 0.5`、**`reflow = false`**（自动补位**关着**，用掉的碎片留个空位）、**碎片间距 = 80（定值，`content` 的 Layout 上配，代码不再算）** |
 | 终局 | `EndgameCta.winCount = 0` —— ⚠️ **退回「全部修完出结束界面」那条老路**（§1.5）：不跳商店、也没有第 N 格就跳那一下。**看着像调试态**（方便一眼看到完成图亮出来 + 结尾视频那一段），交审前要确认 |
-| 每格揭晓 | 23 格**都同时配了** `stickerApply` 和 `brushReveal`，而 `PieceSlot.repair()` 先问 `stickerApply`（§3 那两行的顺序）⇒ **实际走「贴纸贴平」**，画笔那一格走不到。`circleReveal` / `revealAnim` / `swapHide`+`swapShow` 全空。另外 **`FeatureFlags.brushReveal` 是关的**，想单块走画笔要两个都改 |
+| 每格揭晓 | 23 格**都同时配了** `stickerApply` 和 `brushReveal`，而 `PieceSlot.repair()` 先问 `stickerApply`（§3 那两行的顺序）⇒ **实际走「贴纸贴平」**，画笔那一格走不到。`circleReveal` / `revealAnim` 全空。**`Slot_03` 例外**：`hideOnRepair = true` —— 不演揭晓，碎片放大淡出后把 `character_shake` 交叉淡入换成 `完成_人物_绑骨K帧_3.8.75`（`swapHide` / `swapShow`），换人那一下借 `魔法仙尘` 撒一把（`swapDust`）。另外 **`FeatureFlags.brushReveal` 是关的**，想单块走画笔要两个都改 |
 | 每格揭角 | 23 格都勾了「本格单独配揭角」（`peelOverride = true`），每格一份**按各自形状算出来的**参数（不是抄全局）：21 格掀**右下角**、`Slot_15` / `Slot_23` 宽扁 ⇒ 掀**右边**；掀起的深度固定 `0.28 × 短边`，所以比例值逐格不同（0.066–0.228）。规则与重算脚本见 §16 末那条 |
 | 失败路 | **走不到**：23 格的 `altView` / `requires` 全空 ⇒ `REPAIR_FAILED` 永不抛 |
-| 收尾 | **两拍，都用现成事件**：① **最后一块吸附成功当刻**（`LEVEL_COMPLETE`）**就把完成图亮出来** —— `SceneBgSwap.instant = true`：不建材质、不起 tween、不撒仙尘，只是把 `完成背景` 的贴图挪到 `Scene_BG` 上；② **最后一格露面**（最后一个 `PIECE_SHOWN` = 放置那一段演完）才抛 `END_SHOW` ⇒ **结尾视频 3.88s**（§18，配了才演、点一下可跳过）⇒ 结束界面。这两拍之间演的是最后那几格的「贴纸按平」—— 它们演在**已经完整**的画面上，所以没有缺口，只是把碎片按平到图上。**从最后一块落位到出 CTA 约 3.9s + 那零点几秒**。⚠️ 「定格 0.5s」「那道 0.9s 的横扫光」「1.5s 的画笔涂色」**三样都撤了**：前两样靠 `FeatureFlags.sweepOnComplete = false`（关着时 `SceneBgSwap.delay` **必须是 0**，`verify-scene.js` 会卡「白等」），第三样靠 `SceneBgSwap.instant`；那几组参数都还留在组件上，随时能退回（`tools/js/set-finale.js` 传 `{"sweep":true}` 开横扫、取消勾选 `instant` 回画笔，画笔那条**不提前**：等最后一格露面才落笔）。⚠️ 最后一批**齐落**（`AutoPlayer` 里错峰归零，见下「打关」）。⚠️ `winCount > 0` 的老路上演不到（商店在最后一块**吸附当刻**就开了） |
-| 完成背景 | `Scene_BG`（线稿图 582×840）下挂着 `完成背景`（`成图`，同尺寸，平时 `active = false`）、`魔法仙尘`（`ParticleSystem2D`）与 `结尾视频`（§18）。**现在是「直接亮出来」**（`SceneBgSwap.instant = true`）：**最后一块吸附成功当刻**（`LEVEL_COMPLETE`）把 `完成背景` 的贴图挪到 `Scene_BG` 上、把 `完成背景` 睡回去；**等最后一格露面**（最后一个 `PIECE_SHOWN`）才抛 `END_SHOW`。不演画笔、也不撒仙尘。画笔那一套还留着（12 笔 / 半径 0.08 / 1.5s），**取消勾选 `instant` 就退回它**（那条路不提前：最后一格露面才落笔），见 §16 |
-| 结束界面 | **是主路径**（`winCount = 0`）：23 格全修完 ⇒ `LEVEL_COMPLETE`（= 最后一块落位）⇒ **当刻亮出完成图** ⇒ 最后一格 `PIECE_SHOWN`（= 放置那一段演完）⇒ `END_SHOW` ⇒ **结尾视频 3.88s**（§18，配了才演）⇒ `CtaController` 亮结束界面。⚠️ `End/bg` 还是**纯白 4×4**，那一屏现在是白底 |
-| 音频 | 6 条（`AudioManager@Canvas`，见「音频配置」）：bgm 常驻、拿起（贴纸）、放置（放置音）、自动打关（循环）、魔法光粒、三颗 CTA 按下去那一声 |
+| 收尾 | **两拍，都用现成事件**：① **最后一格露面**（最后一个 `PIECE_SHOWN` = 放置那一段演完）**开始画笔涂色** —— `SceneBgSwap.instant = false`：把 `完成背景` 的贴图挂到 `Scene_BG` 上、用 `brush-reveal.effect` 斜着来回刷出来，笔头走到哪「魔法仙尘」撒到哪；② 刷完（`revealTime` 1.5s）才抛 `END_SHOW` ⇒ ~~结尾视频 3.88s~~（**已关**，`CtaController.endVideo` 留空）⇒ 结束界面。这两拍之间演的是最后那几格的「贴纸按平」—— 它们演在**已经完整**的画面上，所以没有缺口，只是把碎片按平到图上。**从最后一块落位到出 CTA 约 3.9s + 那零点几秒**。⚠️ 「定格 0.5s」「那道 0.9s 的横扫光」「1.5s 的画笔涂色」**三样都撤了**：前两样靠 `FeatureFlags.sweepOnComplete = false`（关着时 `SceneBgSwap.delay` **必须是 0**，`verify-scene.js` 会卡「白等」），第三样靠 `SceneBgSwap.instant`；那几组参数都还留在组件上，随时能退回（`tools/js/set-finale.js` 传 `{"sweep":true}` 开横扫、取消勾选 `instant` 回画笔，画笔那条**不提前**：等最后一格露面才落笔）。⚠️ 最后一批**齐落**（`AutoPlayer` 里错峰归零，见下「打关」）。⚠️ `winCount > 0` 的老路上演不到（商店在最后一块**吸附当刻**就开了） |
+| 完成背景 | `Scene_BG`（线稿图 582×840）下挂着 `完成背景`（`成图`，同尺寸，平时 `active = false`）、`魔法仙尘`（`ParticleSystem2D`）与 `结尾视频`（§18）。**现在走画笔涂色**（`SceneBgSwap.instant = false`）：最后一个 `PIECE_SHOWN` 才落笔，把 `完成背景` 的成图从左上角斜着来回刷出来（12 笔 / 半径 0.08 / 羽化 0.25 / 1.5s），笔头走到哪「魔法仙尘」撒到哪；刷完把贴图挪到 `Scene_BG` 上、`完成背景` 睡回去，再抛 `END_SHOW`。想退回「当刻亮出来」就勾上 `instant`（那条路在 `LEVEL_COMPLETE` 就亮图），见 §16 |
+| 结束界面 | **是主路径**（`winCount = 0`）：23 格全修完 ⇒ `LEVEL_COMPLETE`（= 最后一块落位）⇒ **当刻亮出完成图** ⇒ 最后一格 `PIECE_SHOWN`（= 放置那一段演完）⇒ `END_SHOW` ⇒ **结尾视频已关**（`CtaController.endVideo` 留空，§18）⇒ `CtaController` 亮结束界面。⚠️ `End/bg` 还是**纯白 4×4**，那一屏现在是白底 |
+| 音频 | 7 条（`AudioManager@Canvas`，见「音频配置」）：bgm 常驻、飘雪风声（槽位 0 停）、拿起（贴纸）、放置（放置音）、自动打关（循环）、魔法光粒、三颗 CTA 按下去那一声 |
 | 打关 | `AutoPlayer`：`afterPlaced = 3` / `startDelay = 0` / `stagger = 0.01` / **`batches = 2`** / `gap = 0.02` / `flyTime = 0.1`，总开关**开着**。节奏是**一批一批**放：每一步把池里此刻摆出来的 `batches` 屏（= **2 屏 6 块**）一起放走，同一批内错开 `stagger`，全落完再补下一批。⚠️ 池子平时只摆一屏 —— 多摆的那一屏靠 `PiecePool.buildMore()` 在接管期间临时摆上，所以**最外围那两块是从裁剪窗外飞进来的**。⚠️ **最后一批不做错峰**（齐落）。⚠️ `stagger` 现在是 0.01s，错落感看不出来，「齐落」这一下也就等于没改 —— 想要节奏对比得把 `stagger` 调到 0.1 上下。⚠️ 接管之后那一屏的**贴纸收尾脉冲不演**（几格同时收放会糊成一片闪，见 §5 `AUTO_PLAY` / §16）。⚠️ `winCount = 0` 时它**不受「门槛要小于 winCount」那条限制**，会一路把 23 格全放完 |
 | MCP 端口 | **不用再问了：按项目路径现算，本项目恒为 `27502`**（扩展的 `portMode = project`）。公式 `20000 + sha256("funplay-cocos-mcp:" + 小写正斜杠项目路径)[0:8] % 10000`，实现在 [tools/lib/cocos-port.mjs](../tools/lib/cocos-port.mjs) —— `exec.mjs` / `mcp.mjs` 都走它，`MCP_PORT` 仍可覆盖（扩展改成固定端口时才需要） |
 
@@ -54,13 +54,47 @@
 | `sweepOnRepair` | **关** | 单块吸附成功不扫光（自动打关连放 20 块，一块一闪会很吵） |
 | `sweepOnComplete` | **关**（2026-10-15 关掉） | 全部修完横扫整块拼图（23 格并集）—— 收尾现在不要这一拍了；**关着时 `SceneBgSwap.delay` 必须是 0**（两个数由 `tools/js/set-finale.js` 成对写，`verify-scene.js` 会卡「白等」） |
 | `guide` | 开 | 空闲引导照常演（§8.1 第 6 条有兜底） |
+| `snapReveal` | **开**（2026-10-19 接线后打开） | CopyPuzzle 那套「弹一下 → 化掉 → 从圆心扩出来」的吸附瞬间时序（`gameplay/SnapReveal.ts`）。场景里已挂实例、23 格全指向它；关掉即整条退回原来的揭晓。重跑 `tools/js/apply-copy-snap.js` 可恢复 |
 | `autoPlay` | 开 | 自动打关：玩家放够 3 块后系统接管，一路放完 23 格。见 §15 / §16「自动打关」 |
+
+### 手感移植（CopyPuzzle → 本工程，2026-10-19）
+
+代码 + 场景都已落地（2026-10-19 09:22 存盘）。吸附瞬间时序已接线：`EffectLayer` 上挂一份 `SnapReveal`、
+23 个槽位的「吸附瞬间揭晓」全指向它、Canvas 上的开关已打开 —— 重跑 `node tools/exec.mjs scene tools/js/apply-copy-snap.js` 可原样恢复。
+**视觉仍未实测**（没有预览/截图），手感数值先按 CopyPuzzle 原值走。清单与逐条状态见 CopyPuzzle 仓的 `docs/手感移植清单-到Puzzle_new_Template.md`。
+
+| 项 | 代码现状 | 场景 / 默认值 |
+|---|---|---|
+| 拖拽三段（按下不动 / 过门限追手 / 1:1 跟手） | `DragController` 已实现 | 默认 `moveStartDistance = 35`、`catchTime = 0.14`、`touchOffsetY = 0` |
+| 吸附判据 | `SnapSystem.snapMode` = `1` = 按轴矩形（进入即吸附，不等松手） | 场景已写死 `snapMode = 1` / `snapRatio = 0.4`；逐格 `PieceSlot.snapRatio = 0`（用全局） |
+| 托盘失败插入 | `PiecePool.insertNearest()` 已实现 | `insertOnFail = true` / `insertTime = 0.14` |
+| 吸附瞬间时序 | `SnapReveal`（punch 0.6 / reveal 8 / feather 0.35 / brightness 5 / wave on） | **已接线**：`EffectLayer` 挂一份，23 格全指，`FeatureFlags.snapReveal = true`。回退只需关开关 |
+| 坐标系单一出口 | `core/UISpace.ts`，`view.*` 只剩它一处 | — |
+
+### 炉火 / 飘雪 / 烟雾（从 CopyPuzzle 移植，2026-10-19）
+
+`Canvas/FxLayer`（夹在 `GameLayer` 与 `PiecePoolLayer` 之间）下五个节点，**参数与起停条件全在 Inspector**：
+
+| 节点 | 组件 | 干什么 | 何时起 / 何时停（默认） |
+|---|---|---|---|
+| `FxSnow` | `Particle2D`（加色，雪贴图） | 窗外飘雪 | 进场就下；**槽位 1 修好当刻就停**（`stopEvents = [PIECE_REPAIRED]`、`slotIndex = 0`、`stopDelay = 0`；已放出的雪自然落完） |
+| `FxSmoke` | `Particle2D`（普通 alpha，烟） | 壁炉口的烟 | **当前关着**（2026-10-19 按要求清空 `startEvents`）；原计划 `PIECE_REPAIRED` +1.9s 起、`LEVEL_COMPLETE` 停 |
+| `FxFireShine` | `Particle2D`（加色，柔光） | 火光大气氛 | **当前关着**；原计划 `PIECE_REPAIRED` +1.8s 起 |
+| `FxFireSparks` | `Particle2D`（加色，火星） | 火星上蹿 | **当前关着**；原计划 `PIECE_REPAIRED` +1.8s 起 |
+| `FxFire` | `FireAction`（两 sprite 交叉淡入，4 帧） | 壁炉里的火 | **当前关着**；原计划 `PIECE_REPAIRED` +1.8s 起 |
+
+- 关掉的方式是清空「启动事件」+ `playOnLoad = false`（节点仍 active，参数全留着）；要用时在 Inspector 里重新填 `PIECE_REPAIRED` 和延迟即可。
+- 复刻自 CopyPuzzle 的 `Particle2D` / `FireAction`；起停换成 `effects/EventTrigger.ts`（事件名 + 延迟 + 槽位过滤都在面板上）。
+- **位置是按背景构图估的占位值**（原版壁炉在左、窗在右，本工程相反，x 已镜像）。想挪就在 Inspector 里拖，或重跑
+  `node tools/exec.mjs scene tools/js/apply-copy-particles.js` 写回默认值。调参说明见 `docs/TUNING.md` §16 末尾六行。
+- **视觉未实测**：没跑预览/截图，「火苗在不在壁炉口里、雪落下来像不像」还没人眼确认过。
 
 ### 音频配置（`AudioManager@Canvas`，§16）
 
 | 激活事件 | 音效 | 音量 | 渐入渐出 | 循环 | 干什么的 |
 |---|---|---|---|---|---|
 | `NONE`（常驻） | `bgm.mp3` | 1 | 1 / 1 | 一直 | 无缝循环的背景垫乐 |
+| `NONE`（常驻）→ `PIECE_REPAIRED`（槽位 0） | `刮风.mp3` | 0.5 | 0.6 / 0.6 | 一直 | **飘雪的风声**：和 `FxSnow` 同一个停点（那个粒子 `stopEvents=[PIECE_REPAIRED]` / `slotIndex=0`），雪花停风声就渐出。仿 CopyPuzzle 的 `cold_wind`（那边是窗户修好停风） |
 | `PIECE_PICK` | `贴纸.mp3` | 1 | 0 / 0 | 否 | **拿起碎片**那一下（和揭角同一拍） |
 | `PIECE_SNAP_SUCCESS` | `放置音.MP3` | 1 | 0 / 0 | 否 | **修好一块**。一条放到底 —— 音阶 1-6 的顺序列表已弃用（那 6 个资源也删了） |
 | `AUTO_PLAY`→`GAME_OVER` | `自动打关.MP3` | 1 | 0.3 / 0.5 | **是** | 系统接管那一段**整段循环**着放，最后一块落地（`GAME_OVER`）渐出收掉 |

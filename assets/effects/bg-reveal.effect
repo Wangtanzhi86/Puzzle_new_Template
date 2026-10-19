@@ -29,6 +29,7 @@ CCEffect %{
       properties:
         revealParams: { value: [0.0, 0.0, 0.0, 1.0] }
         revealEdge: { value: [0.35, 0.0, 0.0, 0.0] }
+        revealLook: { value: [0.0, 0.0, 0.0, 0.0] }
 }%
 
 CCProgram bg-reveal-vs %{
@@ -90,14 +91,28 @@ CCProgram bg-reveal-fs %{
   uniform BgReveal {
     vec4 revealParams;  // xy 圆心（世界坐标）/ z 进度半径（0 = 圆心，1 = 够到四角）/ w 1÷跨度
     vec4 revealEdge;    // x 羽化半宽（相对跨度）
+    vec4 revealLook;    // x 边缘提亮 / y 水平波纹开关 / zw 备用
   };
 
   vec4 frag () {
     #if USE_TEXTURE
       vec4 o = CCSampleWithAlphaSeparated(cc_spriteTexture, uv0);
       float d = length(world - revealParams.xy) * revealParams.w;
-      float m = 1.0 - smoothstep(revealParams.z - revealEdge.x, revealParams.z + revealEdge.x, d);
-      return vec4(o.rgb, o.a * m * color.a);
+
+      // 水平波纹：cos²(0.5 - uv0.x) 给每一列一个不同的扩散半径（中缝 1、最左/最右 0）。
+      // 从 CopyPuzzle 的 Fader.effect 搬来：那里 same 项乘在「内半径」上，效果是圆的边缘
+      // 不再等速前进 —— 左右两侧先到、中缝后到，看着像一道斜光扫过而不是标准同心圆。
+      // revealLook.y = 0 时 mix 返回 1，整段退化成正圆（旧行为，结束背景那套没勾过）。
+      float w = (0.5 - uv0.x) * 1.5707963;
+      float c = cos(w);
+      float wave = mix(1.0, 2.0 * c * c, revealLook.y);
+      float z = revealParams.z * wave;
+
+      float m = 1.0 - smoothstep(z - revealEdge.x, z + revealEdge.x, d);
+      // 边缘提亮：CopyPuzzle Fader 的 brightness=5，按 (1 - a)² 叠在「刚扫到还没盖满」的那一圈上。
+      // 圈外 alpha 本来就是 0，这里加的 rgb 出不来，所以只有软边那一条会亮。
+      vec3 rgb = o.rgb + o.rgb * revealLook.x * (1.0 - m) * (1.0 - m);
+      return vec4(rgb, o.a * m * color.a);
     #else
       return vec4(0.0);
     #endif

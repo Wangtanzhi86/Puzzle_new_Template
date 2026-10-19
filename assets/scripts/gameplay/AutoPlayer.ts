@@ -105,7 +105,10 @@ export class AutoPlayer extends Component {
         if (!this._auto) return;
         // 池子平时一次只摆一屏，这里先把它摆够（`buildMore` 摆到没得摆为止，多叫几次是安全的）
         for (let i = 1; i < this.batches; i++) this.pool.buildMore();
-        const batch = this.pool.entries.slice();
+        // 滑动模式没有「一屏」的概念（池里从头就是全部）—— 照旧按 `batches × batchSize` 一批一批走，
+        // 否则接管那一下会把剩下二十来块一次全放出去
+        const cap = this.pool.scrollMode ? this.batches * Math.max(1, this.pool.batchSize) : 0;
+        const batch = cap > 0 ? this.pool.entries.slice(0, cap) : this.pool.entries.slice();
         if (batch.length === 0) return;
         this._batch = batch;
         this._pending = batch.length;

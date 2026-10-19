@@ -60,7 +60,7 @@ export class EndVideo extends Component {
         this.player.node.on(VideoPlayer.EventType.COMPLETED, this.done, this);
         this.player.node.on(VideoPlayer.EventType.CLICKED, this.done, this);
         this.player.node.on(VideoPlayer.EventType.META_LOADED, this.fit, this);
-        this.start();
+        this.begin();
         // 元数据已经被缓存过（同一个元素再放一次不会再抛 `META_LOADED`）时得先自己摆一次
         this.fit();
         this.scheduleOnce(this.done, this.fallbackTime);
@@ -74,7 +74,7 @@ export class EndVideo extends Component {
      *  里一句空 `catch`）把 rejection 吞了，外部无从知道被拦，也就没法退。这里直接拿元素放，
      *  播放状态由 DOM 事件回填（引擎那两个 `play` / `playing` 监听）照样跟得上；
      *  我们要的 `COMPLETED` / `CLICKED` 本来就是引擎从元素的 `ended` / `click` 转出来的。 */
-    private start = (): void => {
+    private begin = (): void => {
         const v = this.player.nativeVideo;
         if (!v) return;
         v.play().catch((): void => {
