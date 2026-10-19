@@ -1,7 +1,7 @@
 # 场景接线：按 CopyPuzzle 配置吸附 + 显示（SnapReveal）
 
 - 日期：2026-10-19
-- 提交：56e71b8
+- 提交：0717a18
 - 关联：`docs/手感移植清单-到Puzzle_new_Template.md` 工作包 E、`docs/changes/2026-10-19-feel-drag-snap-insert-reveal.md`
 
 ## 改了什么

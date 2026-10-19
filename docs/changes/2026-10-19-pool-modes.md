@@ -1,7 +1,7 @@
 # 碎片池拆成两种模式（BATCH / SCROLL，用一个下拉切换）
 
 - 日期：2026-10-19
-- 提交：56e71b8
+- 提交：0717a18
 - 关联：AGENTS.md §15 / §16、docs/TUNING.md、docs/worklog/（碎片池相关）
 
 ## 改了什么
