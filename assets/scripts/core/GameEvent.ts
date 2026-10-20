@@ -13,6 +13,8 @@ export enum GameEvent {
     PIECE_REPAIRED = 'PIECE_REPAIRED',
     REPAIR_FAILED = 'REPAIR_FAILED',
     PIECE_SHOWN = 'PIECE_SHOWN',
+    /** 预填那格的补演（碎片飞进来 + 揭晓）演完。`RepairSystem` 凭它把这一格算进进度 */
+    PREFILL_DONE = 'PREFILL_DONE',
     /** 胶带揭晓里一条胶带开始擦出的那一瞬。只有配了 TapeWipe 的槽位会抛 */
     TAPE_STRIP = 'TAPE_STRIP',
     REPAIR_PROGRESS = 'REPAIR_PROGRESS',

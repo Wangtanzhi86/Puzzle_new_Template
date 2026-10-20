@@ -228,7 +228,9 @@ export class PieceSlot extends Component {
         if (this.hideWithBroken) this.hideWithBroken.active = false;
     }
 
-    /** 开局预填：不演任何揭晓，破损图直接收掉、修复图直接铺上。只由 `LevelFactory` 建关时调一次。 */
+    /** 开局预填：逻辑上先算修好，画面也先铺好 —— 开场后由 `PrefillFlight` 调 `resetPrefill()`
+     *  退回破损态再补演。场景里没有补演组件时，就是「一建好就修好」的老行为。
+     *  只由 `LevelFactory` 建关时调一次。 */
     prefill(slotIndex: number): void {
         if (this._repaired) return;
         this._repaired = true;
@@ -238,6 +240,32 @@ export class PieceSlot extends Component {
         const view = this.showView;
         if (view) view.show(this.overlayMode === OverlayMode.IMMEDIATE);
     }
+
+    /** 补演前退回破损态：收掉修复图、放回破损图。`_repaired` 不动 —— 碎片池与吸附判据照旧当它已修好。 */
+    resetPrefill(): void {
+        if (!this.preFilled || !this._repaired) return;
+        const view = this.showView;
+        if (view) view.hide();
+        this.brokenView.node.active = true;
+        if (this.hideWithBroken) this.hideWithBroken.active = true;
+    }
+
+    /** 碎片已经飞到缺口中心：开演这一格的揭晓（有金色烟花就整格走它）。演完才抛 `PREFILL_DONE`。 */
+    playPrefill(): void {
+        if (!this.preFilled || !this._repaired) return;
+        if (this.fireworkReveal && this.fireworkReveal.handles(this)) {
+            this.fireworkReveal.play(this, this.prefillShown);
+            return;
+        }
+        const view = this.showView;
+        if (view) view.show(this.overlayMode === OverlayMode.IMMEDIATE);
+        this.prefillShown();
+    }
+
+    private prefillShown = (): void => {
+        this.hideBroken();
+        EventBus.emit(GameEvent.PREFILL_DONE, this._index);
+    };
 
     /** 返回 true 表示这次真的修好了（重复吸附同一缺口会被挡掉）。
      *  `slotIndex` 会跟着 `PIECE_SHOWN` 抛出去 —— 吸附和修复图露面可能不在同一时刻

@@ -215,6 +215,7 @@ Canvas                          Widget 全屏
 | `PIECE_REPAIRED` | RepairSystem | `slotIndex, progress` | EndgameCta（**修满 `winCount` 就凭它当场跳**） |
 | `REPAIR_FAILED` | PieceSlot（**配了「前置槽位 + 达标后的修复图」的那格**） | `slotIndex` | EndgameCta, GroundWater, AudioManager, **PlayableAnalytics** |
 | `PIECE_SHOWN` | PieceSlot | `slotIndex` | RepairSweep, EndgameCta（**只剩失败路**）, SceneBgSwap（**数到最后一格 → 抛 `END_SHOW`**）, AudioManager（数到最后一格 → 魔法光粒） |
+| `PREFILL_DONE` | PieceSlot（预填格补演演完） | `slotIndex` | RepairSystem（**这时才把这一格算进进度**） |
 | `REPAIR_PROGRESS` | RepairSystem | `current, total` | ProgressController, **PlayableAnalytics** |
 | `LEVEL_COMPLETE` | RepairSystem（计数到齐 = **最后一块吸附成功当刻**） | — | RepairSweep, ProgressController, GuideController, AudioManager, **SceneBgSwap（走「直接亮出来」时凭它当刻亮完成图，§18 前面那条）** |
 | `END_SHOW` | SceneBgSwap（**最后一格露面**那一刻 = 放置那一段演完） | — | CtaController（**配了结尾视频就先演它、演完才亮界面**，§18）, AudioManager（停全部音） |

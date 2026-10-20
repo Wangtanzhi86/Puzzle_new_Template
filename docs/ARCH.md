@@ -33,12 +33,15 @@ assets/scripts/
 │   ├── DragController.ts    拖拽输入（触摸事件 → 位置更新）
 │   ├── AutoPlayer.ts        自动打关：玩家修够门槛后系统接管，剩下的碎片一批一批（默认 2 屏）飞过去吸附
 │   ├── SnapSystem.ts        吸附判定（距离 < snapRadius → 吸附）
-│   ├── RepairSystem.ts      修复流程：单块修复 + 进度 + 总修复
+│   ├── RepairSystem.ts      修复流程：单块修复 + 进度 + 总修复（预填格等 `PREFILL_DONE` 才算进度）
+│   ├── PrefillFlight.ts     预填格补演：开场后碎片从池子飞进缺口，落到中心再走该格揭晓
+│   ├── SlotSwap.ts          某格修好时把一组节点交叉淡入淡出换成另一组（换图 / 换人）
 │   ├── PieceGlow.ts         拖动亮边
 │   ├── TrailEmitter.ts      拖动拖尾
 │   ├── RepairSweep.ts       修复扫光（单块 / 总修复）
 │   ├── RepairReveal.ts      修复揭晓：序列帧 + 从小到大放大
 │   ├── CircleReveal.ts      圆形扩散揭晓（bg-reveal 材质）
+│   ├── FireworkReveal.ts    金色烟花 + 圆形扩散：先炸粒子，再走 CircleReveal
 │   ├── BrushReveal.ts       画笔涂色揭晓（brush-reveal 材质）：圆头笔从左上角斜着来回刷到右下角，刷过的地方才显示修复图
 │   ├── StickerPeel.ts       贴纸揭角：拿起碎片时一角折起来露出背面。导出 `peelLine()` 与 StickerApply 共用
 │   ├── StickerApply.ts      贴纸贴平：修好时修复图整张出现、一角翘着，再推向对边按平；推完还带一下收尾脉冲（缩小淡出 → 放大淡入）
