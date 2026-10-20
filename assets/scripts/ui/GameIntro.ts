@@ -30,6 +30,9 @@ export class GameIntro extends Component {
     @property({ type: EndVideo, displayName: '开头视频', tooltip: '留空 = 只放大静图，铺满就算开场结束' })
     video: EndVideo = null;
 
+    @property({ displayName: '跳过开场放大', tooltip: '勾上 = 选关后隔一帧直接进入游戏（照常发 GAME_START），不演从卡片放大铺满那一段' })
+    skip = false;
+
     @property({ type: Node, displayName: '铺满区域', tooltip: '视频铺满这个世界框（取大 = 盖住）。留空 = 画布' })
     region: Node = null;
 
@@ -121,6 +124,10 @@ export class GameIntro extends Component {
     }
 
     private onLevelSelected = (index: number): void => {
+        if (this.skip) {
+            this.scheduleOnce(this.finish, 0);
+            return;
+        }
         const card = this.select && this.select.items[index];
         const fill = card ? this.findFill(card) : null;
         if (!fill) {

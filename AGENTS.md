@@ -224,6 +224,7 @@ Canvas                          Widget 全屏
 | `AUTO_PLAY` | AutoPlayer（玩家修够门槛、系统接管那一刻） | — | DragController, PiecePool, GuideController, AudioManager（接管期间不放拿起 / 放置）, **StickerApply（接管后不演收尾脉冲）** |
 | `GUIDE_HIDE` | DragController | — | GuideController |
 | `GUIDE_HOLD` / `GUIDE_RESUME` | PieceSlot（`repair()` 开头 / `spotDone()` 末尾，**一格一段**） | — | GuideController |
+| `GUIDE_PIECE` | GuideController（每一遍引导指到某格时） | `slotIndex` | RadialSweep（那一格的白色描边才转出来；每格只演一次） |
 | `CTA_SHOW` / `CTA_CLICK` | CtaController / EndgameCta / GameCta | — | 平台回调, AudioManager（`CTA_CLICK` 停全部音）, **PlayableAnalytics** |
 | `ORIENTATION_CHANGED` | GameEntry | `isPortrait` | DragController, PieceGlow, TrailEmitter, LandscapeLayout, BackgroundSwap, PiecePool, GameCta |
 | `AUDIO_MUTE` | MraidBridge | `muted` | AudioManager |
@@ -415,7 +416,7 @@ Canvas                          Widget 全屏
 | `stickerApply` | 配了「贴纸贴平揭晓」的槽位不再演那一下 —— 破损图收掉、修复图直接出现 | `gameplay/StickerApply.ts` |
 | `circleReveal` | 配了「圆形扩散揭晓」的槽位退回「序列帧 + 放大」 | `gameplay/CircleReveal.ts` |
 | `brushReveal` | 配了「画笔涂色揭晓」的槽位不再刷 —— 破损图当场收掉、修复图直接出现 | `gameplay/BrushReveal.ts` |
-| `radialSweep` | 开局不再把白色描边从中心转出来 —— `EffectLayer` 上那份不挂材质，描边直接显示 | `gameplay/RadialSweep.ts` |
+| `radialSweep` | 不再跟着引导逐格转出白色描边 —— 建关也不挂材质，描边直接常显；引导关着时也不会开场逐格扫 | `gameplay/RadialSweep.ts` |
 | `sweepOnRepair` | 单块吸附成功不再扫光 | `gameplay/RepairSweep.ts` |
 | `sweepOnComplete` | 全部修完不再扫光（收尾少一拍；`SceneBgSwap.delay` 要跟着填 0） | `gameplay/RepairSweep.ts` |
 | `guide` | 空闲引导整棵 `GuideRoot` 藏起来，也不注册任何监听（含全局 `input` 那条） | `ui/GuideController.ts` |

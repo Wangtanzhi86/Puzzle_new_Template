@@ -221,6 +221,7 @@ export class GuideController extends Component {
             this.hide();
             return;
         }
+        EventBus.emit(GameEvent.GUIDE_PIECE, entry.slotIndex);
         this.play(entry, data);
     };
 

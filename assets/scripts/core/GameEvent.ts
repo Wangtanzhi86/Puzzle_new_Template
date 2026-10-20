@@ -26,6 +26,8 @@ export enum GameEvent {
     GUIDE_HIDE = 'GUIDE_HIDE',
     GUIDE_HOLD = 'GUIDE_HOLD',
     GUIDE_RESUME = 'GUIDE_RESUME',
+    /** 引导演到某一遍、当前正指着池里那块碎片（载荷：槽位序号）。RadialSweep 凭它按格播描边 */
+    GUIDE_PIECE = 'GUIDE_PIECE',
     CTA_SHOW = 'CTA_SHOW',
     CTA_CLICK = 'CTA_CLICK',
     ORIENTATION_CHANGED = 'ORIENTATION_CHANGED',

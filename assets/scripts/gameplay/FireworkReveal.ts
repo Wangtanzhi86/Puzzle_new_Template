@@ -21,10 +21,10 @@ export class FireworkReveal extends CircleReveal {
     burst: Particle2D = null;
 
     @property({ displayName: '烟花提前量（秒）', tooltip: '烟花先炸，隔这么久修复图才开始圆形扩散' })
-    burstLead = 0.18;
+    burstLead = 0.24;
 
     @property({ displayName: '烟花发射时长（秒）', tooltip: '发射这么久就掐掉，已出来的粒子自己飞完' })
-    burstTime = 0.12;
+    burstTime = 0.16;
 
     handles(host: RevealHost): boolean {
         return FeatureFlags.fireworkReveal && !!this.burst && !!this.revealEffect && !!host.showView;

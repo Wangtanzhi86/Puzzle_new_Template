@@ -2054,13 +2054,13 @@
       "__uuid__": "45692ecc-d9dc-468b-9ee5-d35ef6475dca",
       "__expectedType__": "cc.EffectAsset"
     },
-    "revealTime": 0.6,
+    "revealTime": 0.8,
     "feather": 0.35,
     "burst": {
       "__id__": 64
     },
-    "burstLead": 0.18,
-    "burstTime": 0.12,
+    "burstLead": 0.24,
+    "burstTime": 0.16,
     "_id": "c7vMb+DD9Dq5Vrg/gEPBrq"
   },
   {
@@ -2651,14 +2651,14 @@
     "stopEvents": [],
     "stopDelay": 0,
     "slotIndex": -1,
-    "totalParticles": 72,
-    "emissionRate": 620,
-    "life": 0.7,
-    "lifeVar": 0.18,
+    "totalParticles": 56,
+    "emissionRate": 360,
+    "life": 1.1,
+    "lifeVar": 0.2,
     "angle": 90,
     "angleVar": 180,
-    "startSize": 36,
-    "startSizeVar": 10,
+    "startSize": 26,
+    "startSizeVar": 7,
     "endSize": 0,
     "endSizeVar": 0,
     "startSpin": 0,
@@ -2695,19 +2695,19 @@
     },
     "posVar": {
       "__type__": "cc.Vec2",
-      "x": 6,
-      "y": 6
+      "x": 4,
+      "y": 4
     },
     "gravity": {
       "__type__": "cc.Vec2",
       "x": 0,
-      "y": -420
+      "y": -160
     },
-    "speed": 430,
-    "speedVar": 180,
+    "speed": 150,
+    "speedVar": 50,
     "tangentialAccel": 0,
     "tangentialAccelVar": 0,
-    "radialAccel": -40,
+    "radialAccel": -50,
     "radialAccelVar": 0,
     "curveDistance": 0,
     "curveAccel": 0,
@@ -3808,7 +3808,7 @@
       "__expectedType__": "cc.SpriteFrame"
     },
     "overlays": [],
-    "pieceId": 3,
+    "pieceId": 2,
     "preFilled": false,
     "snapRadius": 0,
     "snapRadiusRatio": 0.25,
@@ -4506,7 +4506,7 @@
       "__expectedType__": "cc.SpriteFrame"
     },
     "overlays": [],
-    "pieceId": 2,
+    "pieceId": 3,
     "preFilled": false,
     "snapRadius": 0,
     "snapRadiusRatio": 0.25,
@@ -16917,7 +16917,7 @@
     "failButton": {
       "__id__": 491
     },
-    "winCount": 3,
+    "winCount": 0,
     "failFadeTime": 0.25,
     "_id": "8buDvFmlVBE4PXdfQVjTXq"
   },
@@ -19610,6 +19610,7 @@
       "__id__": 578
     },
     "video": null,
+    "skip": false,
     "region": {
       "__id__": 2
     },

@@ -63,8 +63,8 @@ uuid 读 `assets/recourses/*.mp4.meta`。⚠️ 重跑会把 `region` / `fallbac
 ## 开头视频（选关之后）
 
 > ⚠️ **2026-10-20 起这条路先跳过**：场景里 `GameIntro.video` 已置空（`IntroLayer/开头视频` 还留着，`active = false`），
-> 点关只做卡片放大，铺满就直接 `finish()` 收场并抛 `GAME_START`；不再起播、不再等视频。
-> 下面记录的是此前的视频播放设计，要恢复时把 `video` 指回 `IntroLayer/开头视频` 即可。
+> 同日 `GameIntro.skip = true` —— **卡片放大铺满那一段也不演了**，点关隔一帧直接 `finish()` 收场并抛 `GAME_START`。
+> 下面记录的是此前的视频播放设计；要恢复视频就把 `video` 指回 `IntroLayer/开头视频` 并取消 `skip`。
 
 **是什么**：玩家点完关卡，`Canvas/IntroLayer` 的两块挡板**当场**向两侧滑开，**同一刻**起播
 `assets/recourses/开头视频.mp4`（989KB，uuid 见其 `.mp4.meta`）。视频**铺满整屏**（不是拼图区），

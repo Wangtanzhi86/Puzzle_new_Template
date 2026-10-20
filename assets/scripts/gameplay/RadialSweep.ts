@@ -20,7 +20,8 @@ interface SweepHandle {
  * 扫完摘掉材质，最终就是一张普通图。
  *
  * 挂在 EffectLayer 上（全局一个实例），不用往槽位填引用 —— 它自己听 LEVEL_BUILT 拿槽位表。
- * 建关时就先把材质挂上、进度按 0 封住（这时开场层还盖着屏幕），GAME_START 之后才逐格转出来；
+ * 建关时先把材质挂上、进度按 0 封住；之后**不再一起扫**，等引导（GUIDE_PIECE）指到哪一块，
+ * 才把那一块的描边转出来，每格只演一次。引导开关关掉时退回老行为：GAME_START 之后逐格扫。
  * 预填槽位跳过（那一格由 PrefillFlight 的飞入 + 金色烟花接管）。
  *
  * 开关是 `FeatureFlags.radialSweep` —— 关掉就完全不挂材质，开场照旧直接显示描边。
@@ -33,10 +34,10 @@ export class RadialSweep extends Component {
     @property({ displayName: '整圈时长（秒）', tooltip: '单格从正上方转满 360° 用多久' })
     sweepTime = 1.2;
 
-    @property({ displayName: '每格错开（秒）', tooltip: '一格开始后隔这么久，下一格再开始' })
+    @property({ displayName: '每格错开（秒）', tooltip: '只在引导开关关掉、退回开局逐格扫时生效' })
     stagger = 0.15;
 
-    @property({ displayName: '起点延迟（秒）', tooltip: 'GAME_START 之后等多久才开始第一格' })
+    @property({ displayName: '起点延迟（秒）', tooltip: '只在引导开关关掉、退回开局逐格扫时生效' })
     delay = 0;
 
     @property({ displayName: '边缘羽化（占一圈）', tooltip: '扫过的那条边有多虚；0.06 大约是一圈的 6%' })
@@ -44,23 +45,28 @@ export class RadialSweep extends Component {
 
     private _live = new Map<Sprite, SweepHandle>();
     private _data: SlotData[] = [];
+    private _introduced = new Set<number>();
     private _started = false;
 
     protected onEnable(): void {
         EventBus.on(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
         EventBus.on(GameEvent.GAME_START, this.onGameStart, this);
+        EventBus.on(GameEvent.GUIDE_PIECE, this.onGuidePiece, this);
     }
 
     protected onDisable(): void {
         EventBus.off(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
         EventBus.off(GameEvent.GAME_START, this.onGameStart, this);
+        EventBus.off(GameEvent.GUIDE_PIECE, this.onGuidePiece, this);
         this.unscheduleAllCallbacks();
         this.releaseAll();
+        this._introduced.clear();
         this._started = false;
     }
 
     private onLevelBuilt(data: SlotData[]): void {
         this._data = data;
+        this._introduced.clear();
         this._started = false;
         this.releaseAll();
         if (!FeatureFlags.radialSweep || !this.sweepEffect) return;
@@ -73,6 +79,8 @@ export class RadialSweep extends Component {
     private onGameStart(): void {
         if (this._started) return;
         this._started = true;
+        // 有引导时由 GUIDE_PIECE 逐格触发；没有引导才退回开局自己扫
+        if (FeatureFlags.guide) return;
         let at = this.delay;
         for (const d of this._data) {
             if (d.slot.prefilled) continue;
@@ -83,7 +91,17 @@ export class RadialSweep extends Component {
         }
     }
 
-    /** 建关就挂材质、进度 0：开场层还盖着屏幕，先把描边封住，GAME_START 之后才转 */
+    private onGuidePiece = (slotIndex: number): void => {
+        if (!FeatureFlags.radialSweep || this._introduced.has(slotIndex)) return;
+        const d = this._data[slotIndex];
+        if (!d || d.slot.prefilled) return;
+        const handle = d.slot.brokenView ? this._live.get(d.slot.brokenView) : null;
+        if (!handle) return;
+        this._introduced.add(slotIndex);
+        this.play(handle);
+    };
+
+    /** 建关就挂材质、进度 0：先把描边封住，等 GUIDE_PIECE 指到这一格才转 */
     private attach(sprite: Sprite): void {
         if (!sprite || this._live.has(sprite)) return;
         const node = sprite.node;
