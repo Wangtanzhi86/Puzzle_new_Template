@@ -2959,7 +2959,7 @@
       "__id__": 76
     },
     "delay": 0.15,
-    "flyTime": 0.55,
+    "flyTime": 1,
     "stagger": 0.2,
     "fadeTime": 0.12,
     "_id": "4aNHJtssZBPaglRWmgUvMT"
@@ -16972,6 +16972,7 @@
     "poolTouch": null,
     "firstDelay": 0.5,
     "idleDelay": 3,
+    "prefillDelay": 2,
     "loopGap": 0.5,
     "moveTime": 1.1,
     "ghostOpacity": 140,

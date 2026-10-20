@@ -25,7 +25,7 @@ export class PrefillFlight extends Component {
     delay = 0.15;
 
     @property({ displayName: '飞行时长（秒）' })
-    flyTime = 0.55;
+    flyTime = 1;
 
     @property({ displayName: '多格错开（秒）', tooltip: '同时有多个预填槽位时，一块接一块起飞' })
     stagger = 0.2;
