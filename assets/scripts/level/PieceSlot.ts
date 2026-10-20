@@ -4,6 +4,7 @@ import { GameEvent } from '../core/GameEvent';
 import { OverlayMode } from '../data/LevelTypes';
 import { BrushReveal } from '../gameplay/BrushReveal';
 import { CircleReveal } from '../gameplay/CircleReveal';
+import { FireworkReveal } from '../gameplay/FireworkReveal';
 import { RepairReveal } from '../gameplay/RepairReveal';
 import { SlotAfterSnap } from '../gameplay/SlotAfterSnap';
 import { SnapReveal } from '../gameplay/SnapReveal';
@@ -35,6 +36,9 @@ export class PieceSlot extends Component {
 
     @property({ displayName: '碎片序号', tooltip: '碎片池按它排列，也决定这块碎片属于哪个缺口' })
     pieceId = 0;
+
+    @property({ displayName: '开局已修好（预填）', tooltip: '勾上 = 关卡一建好这一格就是修复后的样子，碎片池里也不会出现它。修复完成事件照常补发，进度条从它算起' })
+    preFilled = false;
 
     @property({ displayName: '吸附半径（px）', tooltip: '只在 SnapSystem「吸附范围形状」= 圆（0）时生效：圆形半径，0 = 按下一条自动算。矩形模式（默认）不读它，读下面的「矩形吸附比例」' })
     snapRadius = 0;
@@ -89,6 +93,9 @@ export class PieceSlot extends Component {
     @property({ type: RepairReveal, displayName: '修复揭晓（序列帧）', tooltip: '填了它就在修复图露脸前先播一段序列帧再把它放大出来；本格配了「换掉」那两个节点时只播序列帧、不放大（实物不出场，播完直接换节点）；没填或关了开关就照旧直接显示' })
     revealAnim: RepairReveal = null;
 
+    @property({ type: FireworkReveal, displayName: '金色烟花揭晓', tooltip: '吸附成功先在缺口中心炸开一团金色烟花，再走圆形扩散。填了它这一格就整格走它 —— 上面那些揭晓都不会发生' })
+    fireworkReveal: FireworkReveal = null;
+
     @property({ type: CircleReveal, displayName: '圆形扩散揭晓', tooltip: '来自「结束背景」那套换图手法：破损图留着垫在底下，修复图从缺口中心以圆形羽化扩出来盖掉它，扩完才收破损图。填了它这一格就整格走它 —— 上面那些揭晓都不会发生' })
     circleReveal: CircleReveal = null;
 
@@ -123,6 +130,10 @@ export class PieceSlot extends Component {
 
     get repaired(): boolean {
         return this._repaired;
+    }
+
+    get prefilled(): boolean {
+        return this.preFilled;
     }
 
     get radius(): number {
@@ -217,6 +228,17 @@ export class PieceSlot extends Component {
         if (this.hideWithBroken) this.hideWithBroken.active = false;
     }
 
+    /** 开局预填：不演任何揭晓，破损图直接收掉、修复图直接铺上。只由 `LevelFactory` 建关时调一次。 */
+    prefill(slotIndex: number): void {
+        if (this._repaired) return;
+        this._repaired = true;
+        this._index = slotIndex;
+        this._met = this.meetsRequires();
+        this.hideBroken();
+        const view = this.showView;
+        if (view) view.show(this.overlayMode === OverlayMode.IMMEDIATE);
+    }
+
     /** 返回 true 表示这次真的修好了（重复吸附同一缺口会被挡掉）。
      *  `slotIndex` 会跟着 `PIECE_SHOWN` 抛出去 —— 吸附和修复图露面可能不在同一时刻
      *  （圆形扩散 / 序列帧 / 收尾动作都会把它推后）。 */
@@ -247,6 +269,11 @@ export class PieceSlot extends Component {
         // 贴纸贴平：修复图整张出现（翘着一个角）再按平贴上去。破损图**吸附这一刻就收掉** ——
         // 修复图从第一帧起就铺满整个缺口，翘起来那个角露的是贴纸背面，底下不用垫图。
         // 和圆形扩散一样是整格接管，两个都填时走它（见那个 @property 的 tooltip）
+        // 金色烟花：先炸一团再圆形扩散。和圆形扩散一样整格接管，排在最前面
+        if (this.fireworkReveal && this.fireworkReveal.handles(this)) {
+            this.fireworkReveal.play(this, this.covered);
+            return true;
+        }
         // 吸附瞬间揭晓（CopyPuzzle 时序）：排在最前面 —— 它演的是「碎片刚贴上去」那一下，
         // 和下面任何一个揭晓都互斥，填了它并打开开关就整格走它。关掉开关时 handles() 返 false，
         // 整条自然回退到下面的原有顺序（所以不需要另写一份「回退」代码）

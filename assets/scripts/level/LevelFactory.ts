@@ -36,6 +36,7 @@ export class LevelFactory extends Component {
         const data: SlotData[] = [];
         for (let i = 0; i < this._slots.length; i++) {
             const slot = this._slots[i];
+            if (slot.prefilled) slot.prefill(i);
             data.push({
                 index: i,
                 node: slot.node,

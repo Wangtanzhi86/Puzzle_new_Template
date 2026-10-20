@@ -15,6 +15,7 @@ const DEFAULTS = {
     revealOnRepair: true,
     stickerApply: true,
     circleReveal: true,
+    fireworkReveal: true,
     brushReveal: true,
     sweepOnRepair: true,
     sweepOnComplete: true,
@@ -63,6 +64,9 @@ export class FeatureFlags extends Component {
     @property({ displayName: '修复圆形扩散', tooltip: '修好时修复图从缺口中心羽化扩出来盖住破损图（和结束背景同一套材质）。只有填了「圆形扩散揭晓」的槽位走它，关掉就整条回退到序列帧那套' })
     circleReveal = DEFAULTS.circleReveal;
 
+    @property({ displayName: '金色烟花修复', tooltip: '吸附成功先在缺口中心炸开一团金色烟花，再走圆形扩散。只有填了「金色烟花揭晓」的槽位走它，且整格接管（贴纸 / 画笔 / 圆扩散 / 序列帧都不再发生）' })
+    fireworkReveal = DEFAULTS.fireworkReveal;
+
     @property({ displayName: '修复画笔涂色', tooltip: '修好时一支圆头画笔从左上角斜着来回刷到右下角，刷过的地方才显示修复图。只有填了「画笔涂色揭晓」的槽位走它' })
     brushReveal = DEFAULTS.brushReveal;
 
@@ -99,6 +103,7 @@ export class FeatureFlags extends Component {
     static get revealOnRepair(): boolean { return (FeatureFlags.panel ?? DEFAULTS).revealOnRepair; }
     static get stickerApply(): boolean { return (FeatureFlags.panel ?? DEFAULTS).stickerApply; }
     static get circleReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).circleReveal; }
+    static get fireworkReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).fireworkReveal; }
     static get brushReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).brushReveal; }
     static get sweepOnRepair(): boolean { return (FeatureFlags.panel ?? DEFAULTS).sweepOnRepair; }
     static get sweepOnComplete(): boolean { return (FeatureFlags.panel ?? DEFAULTS).sweepOnComplete; }

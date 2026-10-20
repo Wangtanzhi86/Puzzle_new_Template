@@ -100,7 +100,8 @@ export class SceneBgSwap extends Component {
     }
 
     private onLevelBuilt(data: SlotData[]): void {
-        this._total = data.length;
+        this._total = 0;
+        for (let i = 0; i < data.length; i++) if (!data[i].slot.prefilled) this._total++;
         this._shown = 0;
         this._revealed = false;
         this._ended = false;

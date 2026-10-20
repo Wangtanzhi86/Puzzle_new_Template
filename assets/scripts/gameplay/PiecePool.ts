@@ -215,8 +215,12 @@ export class PiecePool extends Component {
     private buildBatch(animate: boolean): void {
         // 滑动模式没有「一屏」的概念：一开始就把整关摆出来，装得下装不下都交给 ScrollView
         const size = this.scrollMode ? this._data.length : this.batchSize > 0 ? this.batchSize : this._data.length;
-        const end = Math.min(this._next + size, this._data.length);
-        for (let i = this._next; i < end; i++) {
+        let placed = 0;
+        // 预填的槽位不进池子，跳过它继续往后面取，保证这一屏该摆几块就是几块
+        while (this._next < this._data.length && placed < size) {
+            const i = this._next++;
+            if (this._data[i].slot.prefilled) continue;
+            placed++;
             const piece = this.factory.create(this._data[i].slot, this.content);
             this._entries.push({ piece, slotIndex: i, spacer: null });
             if (animate && this.batchFadeTime > 0) {
@@ -229,7 +233,6 @@ export class PiecePool extends Component {
                 tween(op).to(this.batchFadeTime, { opacity: 255 }, { easing: 'quadOut' }).start();
             }
         }
-        this._next = end;
         // 排完再落位 —— 每次 `updateLayout` 之后都要来一下，间距/宽窄变了行宽就变了
         this.content.getComponent(Layout).updateLayout(true);
         this.alignContent();

@@ -356,7 +356,8 @@ export class AudioManager extends Component {
      *  —— 和 `SceneBgSwap` 内部同一个判断（背景就是这一拍开始扩散的），§5 不让改发射方、也不让加事件名，
      *  所以这边自己数一遍。 */
     private onLevelBuilt(data: unknown[]): void {
-        this._total = data.length;
+        this._total = 0;
+        for (let i = 0; i < data.length; i++) if (!(data[i] as { slot: { prefilled: boolean } }).slot.prefilled) this._total++;
         this._shown = 0;
     }
 
