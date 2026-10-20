@@ -415,6 +415,7 @@ Canvas                          Widget 全屏
 | `stickerApply` | 配了「贴纸贴平揭晓」的槽位不再演那一下 —— 破损图收掉、修复图直接出现 | `gameplay/StickerApply.ts` |
 | `circleReveal` | 配了「圆形扩散揭晓」的槽位退回「序列帧 + 放大」 | `gameplay/CircleReveal.ts` |
 | `brushReveal` | 配了「画笔涂色揭晓」的槽位不再刷 —— 破损图当场收掉、修复图直接出现 | `gameplay/BrushReveal.ts` |
+| `radialSweep` | 开局不再把白色描边从中心转出来 —— `EffectLayer` 上那份不挂材质，描边直接显示 | `gameplay/RadialSweep.ts` |
 | `sweepOnRepair` | 单块吸附成功不再扫光 | `gameplay/RepairSweep.ts` |
 | `sweepOnComplete` | 全部修完不再扫光（收尾少一拍；`SceneBgSwap.delay` 要跟着填 0） | `gameplay/RepairSweep.ts` |
 | `guide` | 空闲引导整棵 `GuideRoot` 藏起来，也不注册任何监听（含全局 `input` 那条） | `ui/GuideController.ts` |

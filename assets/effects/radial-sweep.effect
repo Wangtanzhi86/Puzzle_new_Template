@@ -1,0 +1,119 @@
+// 开局「每格白色描边以中心为原点 360° 扫出来」的材质（配套 gameplay/RadialSweep.ts）。
+//
+// 和 bg-reveal 一样在世界坐标里算角度：Sprite 的 a_position 进顶点着色器时已经乘过
+// node.worldMatrix（引擎在 simple.updateWorldVerts 里预先乘好），片元里拿它减去圆心就得到
+// 真实方向。用 uv 算的话，非正方形槽位会把扫过的扇形压成椭圆。
+//
+// 角度 0 从正上方起、顺时针一圈（世界 y 向上）：
+//   atan(p.x, p.y) 在「上 / 右 / 下 / 左」分别是 0 / π/2 / π / 3π/2，负数补一圈。
+//   sweepParams.z 是扫过的圈数（0…1，CPU 会多走一个羽化量保证收尾扫满），
+//   sweepParams.w 是边缘羽化（占一圈的比例）。
+//   只保留角度 ≤ 扫过位置的那一侧，再把结果乘到贴图 alpha 上 —— 白色描边就一笔一笔转出来。
+//
+// sweepParams 由 CPU 按每格的世界圆心和进度塞进来。
+
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: radial-sweep-vs:vert
+      frag: radial-sweep-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        sweepParams: { value: [0.0, 0.0, 0.0, 0.06] }
+}%
+
+CCProgram radial-sweep-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+  out vec2 world;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+    world = a_position.xy;
+
+    return pos;
+  }
+}%
+
+CCProgram radial-sweep-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+
+  #define TAU 6.28318530718
+
+  in vec4 color;
+  in vec2 world;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  #endif
+
+  uniform RadialSweep {
+    vec4 sweepParams;  // xy 圆心（世界坐标）/ z 已扫过的圈数 / w 羽化（占一圈的比例）
+  };
+
+  vec4 frag () {
+    #if USE_TEXTURE
+      vec4 o = CCSampleWithAlphaSeparated(cc_spriteTexture, uv0);
+
+      vec2 p = world - sweepParams.xy;
+      float r = length(p);
+      float m = 1.0;
+
+      // 圆心处方向没有定义，直接算「已扫到」，免得中心留一个针尖大的空洞
+      if (r > 0.0001) {
+        float a = atan(p.x, p.y);
+        if (a < 0.0) a += TAU;
+        float edge = sweepParams.z * TAU;
+        float f = max(sweepParams.w, 0.0001) * TAU;
+        m = 1.0 - smoothstep(edge - f, edge, a);
+      }
+
+      return vec4(o.rgb, o.a * m * color.a);
+    #else
+      return vec4(0.0);
+    #endif
+  }
+}%

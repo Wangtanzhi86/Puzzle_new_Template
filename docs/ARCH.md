@@ -42,6 +42,7 @@ assets/scripts/
 │   ├── RepairReveal.ts      修复揭晓：序列帧 + 从小到大放大
 │   ├── CircleReveal.ts      圆形扩散揭晓（bg-reveal 材质）
 │   ├── FireworkReveal.ts    金色烟花 + 圆形扩散：先炸粒子，再走 CircleReveal
+│   ├── RadialSweep.ts       开局描边转出：每格白色描边以自己中心为原点顺时针扫 360°，扫到才显示（radial-sweep 材质）
 │   ├── BrushReveal.ts       画笔涂色揭晓（brush-reveal 材质）：圆头笔从左上角斜着来回刷到右下角，刷过的地方才显示修复图
 │   ├── StickerPeel.ts       贴纸揭角：拿起碎片时一角折起来露出背面。导出 `peelLine()` 与 StickerApply 共用
 │   ├── StickerApply.ts      贴纸贴平：修好时修复图整张出现、一角翘着，再推向对边按平；推完还带一下收尾脉冲（缩小淡出 → 放大淡入）

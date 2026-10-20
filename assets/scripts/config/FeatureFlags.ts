@@ -17,6 +17,7 @@ const DEFAULTS = {
     circleReveal: true,
     fireworkReveal: true,
     brushReveal: true,
+    radialSweep: true,
     sweepOnRepair: true,
     sweepOnComplete: true,
     guide: true,
@@ -70,6 +71,9 @@ export class FeatureFlags extends Component {
     @property({ displayName: '修复画笔涂色', tooltip: '修好时一支圆头画笔从左上角斜着来回刷到右下角，刷过的地方才显示修复图。只有填了「画笔涂色揭晓」的槽位走它' })
     brushReveal = DEFAULTS.brushReveal;
 
+    @property({ displayName: '开局描边转出', tooltip: '游戏开始时每个槽位的白色描边以自己的中心为原点顺时针转出来。组件在 EffectLayer 上，预填槽位跳过' })
+    radialSweep = DEFAULTS.radialSweep;
+
     @property({ displayName: '单块修复扫光' })
     sweepOnRepair = DEFAULTS.sweepOnRepair;
 
@@ -105,6 +109,7 @@ export class FeatureFlags extends Component {
     static get circleReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).circleReveal; }
     static get fireworkReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).fireworkReveal; }
     static get brushReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).brushReveal; }
+    static get radialSweep(): boolean { return (FeatureFlags.panel ?? DEFAULTS).radialSweep; }
     static get sweepOnRepair(): boolean { return (FeatureFlags.panel ?? DEFAULTS).sweepOnRepair; }
     static get sweepOnComplete(): boolean { return (FeatureFlags.panel ?? DEFAULTS).sweepOnComplete; }
     static get guide(): boolean { return (FeatureFlags.panel ?? DEFAULTS).guide; }

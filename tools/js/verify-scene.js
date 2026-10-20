@@ -25,6 +25,7 @@ const wanted = {
     RepairReveal: [],
     CircleReveal: ['revealEffect'],
     FireworkReveal: ['revealEffect', 'burst'],
+    RadialSweep: ['sweepEffect'],
     PrefillFlight: [],
     BrushReveal: ['brushEffect'],
     StickerApply: ['frontEffect', 'backEffect'],
