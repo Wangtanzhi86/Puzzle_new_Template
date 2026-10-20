@@ -122,7 +122,7 @@
             "_value": true
           },
           "video": {
-            "_value": false
+            "_value": true
           },
           "webview": {
             "_value": false
@@ -207,7 +207,8 @@
           "particle-2d",
           "spine-3.8",
           "tween",
-          "ui"
+          "ui",
+          "video"
         ],
         "noDeprecatedFeatures": {
           "value": false,

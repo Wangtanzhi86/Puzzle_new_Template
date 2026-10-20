@@ -57,3 +57,42 @@ uuid 读 `assets/recourses/*.mp4.meta`。⚠️ 重跑会把 `region` / `fallbac
 **⚠️ 还没验的**：① 有声自动播放到底放不放行（真机 / 真容器才验得到）；② `CLICKED` 跳过在容器里灵不灵；
 ③ Safari 的 blob MIME 与 `HTMLSourceElement` 那两条修复（得在单文件产物里验）；
 ④ `video` 模块重开之后**引擎得重编**（去「设置 → 功能裁剪」保存一次逼它重编，光改 JSON 不够，§9）。
+
+---
+
+## 开头视频（选关之后）
+
+**是什么**：玩家点完关卡，`Canvas/IntroLayer` 的两块挡板**当场**向两侧滑开，**同一刻**起播
+`assets/recourses/开头视频.mp4`（989KB，uuid 见其 `.mp4.meta`）。视频**铺满整屏**（不是拼图区），
+播完（或点一下跳过、或 `fallbackTime = 12s` 兜底）才算开场结束。
+
+| 位置 | 是什么 |
+|---|---|
+| `Canvas/IntroLayer/开头视频` | 节点：`cc.UITransform`（720×1280 占位，**不给 Widget**）+ `cc.VideoPlayer` + `EndVideo`；平时 `active = false` |
+| `EndVideo.region` | 指 **`Canvas`**（整屏铺满、溢出裁掉）。和结尾视频复用同一个组件，只是区域不同 |
+| `GameIntro.video` | 指上面那个 `EndVideo`。`GameIntro` 只管挡板 tween，**视频播完由它回调 `finish()`** |
+| `GameIntro.slideTime / sweep` | 挡板滑出时长 / 距离。滑出与视频起播是同一帧，**不再有停留与标题** |
+| `EndVideo.fadeOut` | 开头这个是 **0.5 秒**（结尾视频留 0 = 不淡）。播到「片长 − 0.5s」把 DOM 元素的 `opacity` 淡到 0 —— `ended` 那一两帧浏览器会闪回第一帧，淡到透明就看不见 |
+
+**结尾不能硬切**：`<video>` 播完会回到首帧再被 `visibility: hidden` 藏掉，中间那一下会闪一下首帧。
+`EndVideo.fadeOut = 0.5` 在片尾前 0.5 秒起一段 CSS `opacity` 过渡，收摊时画面已经是透明的。
+（`UIOpacity` 管不到画布之上的 DOM 视频，只能写元素自己的样式；`done()` 里先置 `active = false` 再回调，`onDisable` 的 `visibility: hidden` 兜底。）
+
+**这条流程里没有「点击屏幕开始」**：`GameIntro.finish()` 直接把 `IntroLayer` 收起来，抛
+`GUIDE_RESUME`（空闲引导解冻）与 **`GAME_START`**（音频那盘的起跑线）。
+
+**声音（2026-10-20 定的）**：
+- 玩家**点关卡那一刻**就算用户激活 —— `AudioManager` 听 `LEVEL_SELECTED` 解锁，**一次性音效**此后立刻能响；
+- **BGM 与常驻音（激活事件 = NONE 的两条）等 `GAME_START` 才起**，不与开头视频的音轨抢；
+- 视频起播照旧**先试带声音**，被拦自动静音重放（同结尾视频，走 `EndVideo.begin()`）。
+
+接线脚本 `tools/js/mount-intro-video.js`（幂等）：
+
+```
+node tools/exec.mjs scene tools/js/mount-intro-video.js "{\"clip\":\"<片源 uuid>\"}"
+```
+
+**体积**：989KB × 1.25 ≈ **+1.24MB HTML**。加上结尾视频那份，两片合计约 +2.3MB，**交审前核一遍 < 5MB**。
+
+**⚠️ 还没验的**：① 视频 12 秒兜底是拍出来的，片长若更长要往上调；② 整屏 cover 裁切后构图；
+③ 视频那一下的触摸全被 DOM 元素吃掉（跳过只能听 `CLICKED`），演完节点睡回去触摸才穿得过。

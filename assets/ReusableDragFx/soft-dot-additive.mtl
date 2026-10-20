@@ -1,0 +1,23 @@
+{
+  "__type__": "cc.Material",
+  "_name": "soft-dot-additive",
+  "_objFlags": 0,
+  "__editorExtras__": {},
+  "_native": "",
+  "_effectAsset": {
+    "__uuid__": "0c27778b-f69e-4f6f-a67e-76a7d827d31f",
+    "__expectedType__": "cc.EffectAsset"
+  },
+  "_techIdx": 0,
+  "_defines": [
+    {
+      "USE_LOCAL": false
+    }
+  ],
+  "_states": [
+    {}
+  ],
+  "_props": [
+    {}
+  ]
+}

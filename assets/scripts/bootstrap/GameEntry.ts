@@ -13,6 +13,8 @@ export class GameEntry extends Component {
     @property({ type: LevelFactory, displayName: '关卡工厂' }) levelFactory: LevelFactory = null;
 
     private _portrait = true;
+    /** 选中的关卡序号（现在关卡内容只有一套，先存着当接口） */
+    private _levelId = 0;
 
     protected onLoad(): void {
         // 赶在第一帧的 Widget 对齐之前切策略，撑满屏幕这步才不会闪一下
@@ -24,7 +26,16 @@ export class GameEntry extends Component {
         this._portrait = isPortrait();
         EventBus.emit(GameEvent.GAME_INIT);
         EventBus.emit(GameEvent.ORIENTATION_CHANGED, this._portrait);
+        // 先亮选关（Canvas/Change），玩家点完关卡才建关 —— 建早了会在挡板后面自己演起来
+        EventBus.on(GameEvent.LEVEL_SELECTED, this.onLevelSelected, this);
+    }
+
+    private onLevelSelected(levelId: number): void {
+        EventBus.off(GameEvent.LEVEL_SELECTED, this.onLevelSelected, this);
+        this._levelId = levelId;
         this.levelFactory.build();
+        // 建关会顺手把空闲引导的计时器安上；开场动画和「点击开始」期间不许它抢戏
+        EventBus.emit(GameEvent.GUIDE_HOLD);
         this.scheduleOnce(this.probe, 0.5);
     }
 
@@ -34,6 +45,7 @@ export class GameEntry extends Component {
             const ut = (p: string) => c.getChildByPath(p).getComponent(UITransform);
             const bg = c.getChildByPath('BackgroundLayer/Bg_Sprite');
             const sp = bg.getComponent(Sprite);
+            const progress = c.getChildByName('ProgressLayer') || c.getChildByPath('UILayer/ProgressLayer');
             console.log('[Probe] frame=' + JSON.stringify(frameSize())
                 + ' visible=' + JSON.stringify(visibleSize())
                 + ' canvas=' + c.getComponent(UITransform).width + 'x' + c.getComponent(UITransform).height
@@ -43,7 +55,7 @@ export class GameEntry extends Component {
                 + ' game=' + ut('GameLayer').height
                 + ' sceneBg=' + ut('GameLayer/Scene_BG').height
                 + ' pool=' + ut('PiecePoolLayer').height
-                + ' progressY=' + c.getChildByPath('UILayer/ProgressLayer').position.y);
+                + ' progressY=' + (progress ? progress.position.y : 'n/a'));
         } catch (e) {
             console.log('[Probe] err ' + (e as Error).message);
         }

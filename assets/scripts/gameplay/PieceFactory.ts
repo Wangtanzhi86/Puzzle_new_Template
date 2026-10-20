@@ -49,7 +49,7 @@ export class PieceFactory extends Component {
             const sprite = node.addComponent(Sprite);
             sprite.sizeMode = Sprite.SizeMode.CUSTOM;
             node.addComponent(UIOpacity);   // 换批时的淡入用（`PiecePool.buildBatch`）
-            if (FeatureFlags.pieceGlow) node.addComponent(PieceGlow);
+            if (FeatureFlags.pieceGlow && !FeatureFlags.dragFx) node.addComponent(PieceGlow);
             if (FeatureFlags.stickerPeel) node.addComponent(StickerPeel);
             return node;
         });
@@ -69,7 +69,7 @@ export class PieceFactory extends Component {
         const h = frame ? frame.rect.height * k : this.maxPieceSize;
         node.getComponent(UITransform).setContentSize(w, h);
         node.getComponent(UIOpacity).opacity = 255;
-        if (FeatureFlags.pieceGlow) node.getComponent(PieceGlow).apply(this.glowEffect, frame, w, h, this.glowParams);
+        if (FeatureFlags.pieceGlow && !FeatureFlags.dragFx) node.getComponent(PieceGlow).apply(this.glowEffect, frame, w, h, this.glowParams);
         // 排在亮边之后：`PeelBack` 是后加的子节点，压在光晕上面，折起来那半才盖得住
         if (FeatureFlags.stickerPeel) {
             node.getComponent(StickerPeel).apply(this.peelFrontEffect, this.peelBackEffect, frame, w, h, src.peel || this.peelParams);

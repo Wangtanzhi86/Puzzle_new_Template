@@ -1,0 +1,67 @@
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: zoom-blur-vs:vert
+      frag: zoom-blur-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendSrcAlpha: one
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        uCenter: { value: [0.5, 0.5] }
+        uStrength: { value: 0.0 }
+}%
+
+CCProgram zoom-blur-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+  out vec2 uv0;
+  out vec4 color;
+  vec4 vert () {
+    vec4 position = vec4(a_position, 1.0);
+    #if USE_LOCAL
+      position = cc_matWorld * position;
+    #endif
+    uv0 = a_texCoord;
+    color = a_color;
+    return cc_matViewProj * position;
+  }
+}%
+
+CCProgram zoom-blur-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+  in vec2 uv0;
+  in vec4 color;
+  #pragma builtin(local)
+  layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  uniform Blur {
+    vec2 uCenter;
+    float uStrength;
+  };
+  #define TAPS 8.0
+  vec4 frag () {
+    vec4 sum = vec4(0.0);
+    vec2 dir = uv0 - uCenter;
+    for (int i = 0; i < 8; i++) {
+      float t = float(i) / (TAPS - 1.0);
+      sum += CCSampleWithAlphaSeparated(cc_spriteTexture, uv0 + dir * uStrength * t);
+    }
+    sum /= TAPS;
+    return vec4(sum.rgb * color.rgb, sum.a * color.a);
+  }
+}%

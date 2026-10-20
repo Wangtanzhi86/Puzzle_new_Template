@@ -77,7 +77,11 @@ export class MraidBridge extends Component {
      * 没有注入时（编辑器预览、改脚本前打的老产物）退回 mraid 那条老路。
      */
     openStore(): void {
-        const url = this.isAndroid() ? ANDROID_STORE_URL : IOS_STORE_URL;
+        this.openStoreUrl(this.isAndroid() ? ANDROID_STORE_URL : IOS_STORE_URL);
+    }
+
+    /** 跳指定商店 —— 结束界面那两个徽标各跳各的。 */
+    openStoreUrl(url: string): void {
         const cta = (window as any).__ccCta;
         if (typeof cta === 'function' && cta(url)) {
             console.log('[MraidBridge] ' + ((window as any).__CC_CHANNEL || 'adapter') + ' CTA → ' + url);

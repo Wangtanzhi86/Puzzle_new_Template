@@ -19,6 +19,8 @@ class P2DParticle {
     vel = new Vec2();
     radAcc = 0;
     tanAcc = 0;
+    travel = 0;
+    dirY = 0;
     s0 = 0;
     s1 = 0;
     spin0 = 0;
@@ -105,7 +107,20 @@ export class Particle2D extends Component {
     @property({ displayName: '切向加速度浮动' }) tangentialAccelVar = 0;
     @property({ displayName: '径向加速度 / 浮动' }) radialAccel = 0;
     @property({ displayName: '径向加速度浮动' }) radialAccelVar = 0;
+
+    @property({ displayName: '直飞距离（px）', tooltip: '起飞后先保持直线飞这么远，再按出生位置的上下方分流转向。0 = 立刻转' })
+    curveDistance = 0;
+
+    @property({ displayName: '上下转向加速度（px/s²）', tooltip: '出生在发射点上方 → 向上弯；下方 → 向下弯。0 = 不转' })
+    curveAccel = 0;
+
     @property({ displayName: '位置模式', tooltip: '1 = 相对发射器（2.x RELATIVE），0 = 世界坐标' }) positionType = 1;
+
+    @property({ displayName: '线条长度倍率', tooltip: '1 = 方形粒子；>1 = 沿飞行方向拉成长条（粗细仍由初始/结束大小控制）' })
+    lengthRatio = 1;
+
+    @property({ displayName: '线条朝速度方向', tooltip: '勾上 = 长条始终顺着飞行方向；不勾 = 用初始/结束自转' })
+    alignToVelocity = false;
 
     private _pool: P2DParticle[] = [];
     private _alive = 0;
@@ -157,7 +172,7 @@ export class Particle2D extends Component {
             n.parent = this.node;
             n.layer = this.node.layer;
             const ui = n.addComponent(UITransform);
-            ui.setContentSize(this.startSize, this.startSize);
+            ui.setContentSize(this.startSize * this.lengthRatio, this.startSize);
             const sp = n.addComponent(Sprite);
             sp.sizeMode = Sprite.SizeMode.CUSTOM;
             sp.spriteFrame = this.spriteFrame;
@@ -215,6 +230,8 @@ export class Particle2D extends Component {
         p.s1 = this.endSize + this.endSizeVar * rand11();
         p.radAcc = this.radialAccel + this.radialAccelVar * rand11();
         p.tanAcc = this.tangentialAccel + this.tangentialAccelVar * rand11();
+        p.travel = 0;
+        p.dirY = p.pos.y >= 0 ? 1 : -1;
         p.spin0 = this.startSpin + this.startSpinVar * rand11();
         p.spin1 = this.endSpin + this.endSpinVar * rand11();
         p.c0.set(clamp255(this.startColor.r + this.startColorVar.r * rand11()),
@@ -255,12 +272,14 @@ export class Particle2D extends Component {
             const tx = -ry, ty = rx;
             p.vel.x += (rx * p.radAcc + tx * p.tanAcc + this.gravity.x) * dt;
             p.vel.y += (ry * p.radAcc + ty * p.tanAcc + this.gravity.y) * dt;
+            p.travel += Math.sqrt(p.vel.x * p.vel.x + p.vel.y * p.vel.y) * dt;
+            if (p.travel >= this.curveDistance) p.vel.y += p.dirY * this.curveAccel * dt;
             p.pos.x += p.vel.x * dt;
             p.pos.y += p.vel.y * dt;
             p.node.setPosition(p.pos.x, p.pos.y, 0);
             const size = p.s0 + (p.s1 - p.s0) * t;
-            if (Math.abs(size - p.lastSize) > 0.05) { p.ui.setContentSize(size, size); p.lastSize = size; }
-            const spin = p.spin0 + (p.spin1 - p.spin0) * t;
+            if (Math.abs(size - p.lastSize) > 0.05) { p.ui.setContentSize(size * this.lengthRatio, size); p.lastSize = size; }
+            const spin = this.alignToVelocity ? Math.atan2(p.vel.y, p.vel.x) / DEG2RAD : p.spin0 + (p.spin1 - p.spin0) * t;
             if (Math.abs(spin - p.lastAngle) > 0.05) { p.node.angle = spin; p.lastAngle = spin; }
             const c = this._c;
             c.r = p.c0.r + (p.c1.r - p.c0.r) * t;

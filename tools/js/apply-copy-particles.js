@@ -16,7 +16,7 @@
 const UI_2D = cc.Layers.Enum.UI_2D;
 
 const SF = {
-  snow: '16c41e27-acf9-4dda-829e-935a21e59f24',
+  windLine: 'ce36cd45-34b5-4a0d-9d91-c780cbb2d7f8',
   smoke: 'dbe675c1-458a-4282-b23f-0678a0db4f02',
   shine: '646b7651-605b-4b20-94b3-7460ee04b888',
   spark: '2f76c8f2-48a7-46ab-b6e9-8ec6faf24333',
@@ -47,7 +47,7 @@ async function loadSF(uuid) {
   }
 }
 
-const snowSF = await loadSF(SF.snow);
+const windSF = await loadSF(SF.windLine);
 const smokeSF = await loadSF(SF.smoke);
 const shineSF = await loadSF(SF.shine);
 const sparkSF = await loadSF(SF.spark);
@@ -87,45 +87,51 @@ function setOpacity(n, o) {
   op.opacity = o;
 }
 
-// ---- 飘雪：窗前景。原版 FxSnowWall ----
+// ---- 风线：从 Slot_03 那扇窗往屋里横着刮。原版 FxSnowWall ----
 {
-  const n = ensure('FxSnow', 110, 430, 70);
+  const n = ensure('FxSnow', 234, 245, 70);
   const p = n.getComponent('Particle2D') || n.addComponent('Particle2D');
-  p.spriteFrame = snowSF;
+  const anchor = canvasNode.getChildByPath('GameLayer/BrokenLayer/Slot_03/Broken');
+  if (anchor) n.setWorldPosition(anchor.worldPosition);
+  p.spriteFrame = windSF;
+  p.lengthRatio = 32;
+  p.alignToVelocity = true;
   p.additive = true;
   p.additiveEffect = spriteAdd;
   p.playOnLoad = true;
   p.startEvents = [];
   p.startDelay = 0;
-  p.stopEvents = ['LEVEL_COMPLETE'];
-  p.stopDelay = 0.5;
-  p.slotIndex = -1;
-  p.totalParticles = 250;
-  p.emissionRate = 350;
-  p.life = 1.5;
-  p.lifeVar = 0.5;
-  p.angle = 250;
-  p.angleVar = 30;
-  p.startSize = 10;
-  p.startSizeVar = 5;
-  p.endSize = 10;
-  p.endSizeVar = 5;
+  p.stopEvents = ['PIECE_REPAIRED'];
+  p.stopDelay = 0;
+  p.slotIndex = 2;
+  p.totalParticles = 50;
+  p.emissionRate = 30;
+  p.life = 0.53;
+  p.lifeVar = 0.07;
+  p.angle = 180;
+  p.angleVar = 5;
+  p.startSize = 3.2;
+  p.startSizeVar = 0.8;
+  p.endSize = 1.4;
+  p.endSizeVar = 0.4;
   p.startSpin = 0;
-  p.startSpinVar = 180;
+  p.startSpinVar = 0;
   p.endSpin = 0;
-  p.endSpinVar = 180;
-  p.startColor = new cc.Color(255, 255, 255, 255);
+  p.endSpinVar = 0;
+  p.startColor = new cc.Color(238, 247, 255, 235);
   p.startColorVar = new cc.Color(0, 0, 0, 0);
-  p.endColor = new cc.Color(255, 255, 255, 0);
+  p.endColor = new cc.Color(238, 247, 255, 0);
   p.endColorVar = new cc.Color(0, 0, 0, 0);
-  p.posVar = new cc.Vec2(139, 174);
+  p.posVar = new cc.Vec2(4, 62);
   p.gravity = new cc.Vec2(0, 0);
-  p.speed = 522;
-  p.speedVar = 348;
+  p.speed = 500;
+  p.speedVar = 80;
   p.tangentialAccel = 0;
-  p.tangentialAccelVar = 348;
+  p.tangentialAccelVar = 0;
   p.radialAccel = 0;
-  p.radialAccelVar = 348;
+  p.radialAccelVar = 0;
+  p.curveDistance = 40;
+  p.curveAccel = 570;
   p.positionType = 1;
 }
 
@@ -277,7 +283,7 @@ return {
   layer: layer.name,
   siblingIndex: layer.getSiblingIndex(),
   children: layer.children.map((c) => c.name),
-  snowSF: snowSF ? snowSF.name : null,
+  windSF: windSF ? windSF.name : null,
   fireFrames: fireFrames.map((s) => (s ? s.name : null)),
   spriteAdd: spriteAdd ? spriteAdd.name : null,
 };

@@ -12,13 +12,12 @@ const BRUSH_MAX_ROWS = 12;
 /**
  * 全部修完之后把拼图区背景换成「完成背景」。两种模式，`instant` 选：
  *
- * - **`instant = true`（现在走的）**：分两拍走 ——
- *   ① **最后一块吸附成功当刻**（`LEVEL_COMPLETE`，这时所有碎片都已落位，只剩最后那几格的「贴纸按平」还在演）
- *      就**当刻把完成图亮出来**：不建材质、不起 tween、不撒仙尘，只是把 `完成背景` 的贴图挪到本节点上；
- *   ② **最后一格露面**（最后一个 `PIECE_SHOWN`，= 放置那一段演完）才抛 `END_SHOW`（下一拍是结尾视频 → 结束界面）。
- * - `instant = false`：一支圆头画笔从左上角起笔斜着来回刷到右下角（和单块修复同一份
- *   `brush-reveal.effect`），刷过的地方才露出完成图；笔头走到哪 `dust`（`魔法仙尘`）撒到哪。
- *   这条路**不提前**：等最后一格露面才落笔，涂完立刻抛 `END_SHOW`。
+ * - **`instant = true`（现在走的）**：**最后一块吸附成功当刻**（`LEVEL_COMPLETE`）就把完成图亮出来 ——
+ *   不建材质、不起 tween、不撒仙尘；但 **`END_SHOW` 要等最后一格修复演完**（最后一个 `PIECE_SHOWN`）才抛，
+ *   所以结束界面不会盖住最后几格的「贴纸按平」。
+ * - `instant = false`：等最后一格露面（最后一个 `PIECE_SHOWN`，= 放置那一段演完），再用一支圆头画笔
+ *   从左上角起笔斜着来回刷到右下角（和单块修复同一份 `brush-reveal.effect`），刷过的地方才露出完成图；
+ *   笔头走到哪 `dust`（`魔法仙尘`）撒到哪。涂完立刻抛 `END_SHOW`。
  *
  * 两种模式**收尾状态一模一样**（贴图挪到本节点上、`完成背景` 睡着），所以下游（结尾视频、结束界面）
  * 不必知道走的是哪条。
@@ -28,7 +27,7 @@ const BRUSH_MAX_ROWS = 12;
  */
 @ccclass('SceneBgSwap')
 export class SceneBgSwap extends Component {
-    @property({ displayName: '直接亮出来', tooltip: '勾上（现在）：最后一块落位当刻就把完成图亮出来、最后一格演完再抛 END_SHOW；不走画笔、不起 tween、不撒仙尘。取消勾选退回画笔涂色那一套（等最后一格露面才落笔）' })
+    @property({ displayName: '完成图直接亮出来', tooltip: '勾上（现在）：最后一块吸附成功当刻就把完成图亮出来（不走画笔、不起 tween、不撒仙尘），但结束界面要等最后一格修复演完（最后一个 PIECE_SHOWN）才弹，不盖住最后一格的揭晓。取消勾选退回画笔涂色：等最后一格露面才落笔，画完再进结束界面' })
     instant = true;
 
     @property({ type: EffectAsset, displayName: '画笔材质', tooltip: '和六格修复同一份 brush-reveal.effect。⚠️「直接亮出来」勾着时不起作用' })
@@ -40,7 +39,7 @@ export class SceneBgSwap extends Component {
     @property({ type: ParticleSystem2D, displayName: '魔法仙尘', tooltip: '笔头走到哪撒到哪。参数全在这个粒子节点上；⚠️ 把它的「加载时播放」关掉（起停由本组件管）。留空就不撒粒子。⚠️「直接亮出来」勾着时不起作用' })
     dust: ParticleSystem2D = null;
 
-    @property({ displayName: '开演前等待（秒）', tooltip: '⚠️ 只对「直接亮出来」生效：最后一块落位之后先等这么久再亮。画笔模式不读它（最后一个 PIECE_SHOWN 当刻就落笔）。它和 `RepairSweep` 的「总修复：开演前定格 + 时长」是一对，改一边要看另一边；扫光开关关着时填 0' })
+    @property({ displayName: '开演前等待（秒）', tooltip: '⚠️ 只对「完成图直接亮出来」生效：最后一块落位之后先等这么久再亮。画笔模式不读它（最后一个 PIECE_SHOWN 当刻就落笔）。它和 `RepairSweep` 的「总修复：开演前定格 + 时长」是一对，改一边要看另一边；扫光开关关着时填 0' })
     delay = 0;
 
     @property({ displayName: '涂完时长（秒）', tooltip: '⚠️「直接亮出来」勾着时不起作用' })
@@ -58,7 +57,7 @@ export class SceneBgSwap extends Component {
     @property({ type: [Node], displayName: '完成图出现时收掉的节点', tooltip: '成图里已经画好的那些活节点（换人的 Spine、破损图替身之类）—— 完成图一亮它们就盖在成图上，看起来像「穿模」。留空不影响' })
     hideAtComplete: Node[] = [];
 
-    @property({ type: [Node], displayName: '开演前收掉的节点', tooltip: '亮图 / 落笔之前先淡出这些节点（例：BrokenLayer 的破损碎片、碎片池、进度条）—— 免得画笔刷过去时底下还露着它们。两种模式都生效。⚠️ 留空会自动按名字收：GameLayer/BrokenLayer、Canvas/PiecePoolLayer、DragRoot、GameCta、UILayer/GuideLayer、UILayer/ProgressLayer（编辑器存盘时把这里清空也不至于整场露底）' })
+    @property({ type: [Node], displayName: '开演前收掉的节点', tooltip: '亮图 / 落笔之前先淡出这些节点（例：BrokenLayer 的破损碎片、碎片池、进度条）—— 免得画笔刷过去时底下还露着它们。两种模式都生效。⚠️ 留空会自动按名字收：GameLayer/BrokenLayer、Canvas/PiecePoolLayer、Canvas/ProgressLayer、DragRoot、GameCta、UILayer/GuideLayer（编辑器存盘时把这里清空也不至于整场露底）' })
     hideBeforeReveal: Node[] = [];
 
     @property({ displayName: '收场淡出时长（秒）', tooltip: '「开演前收掉的节点」淡出多久；填 0 = 当场收掉' })
@@ -107,21 +106,26 @@ export class SceneBgSwap extends Component {
         this._ended = false;
     }
 
-    /** 最后一块**吸附成功**当刻（`LEVEL_COMPLETE`）：走「直接亮出来」时就在这一拍亮图 ——
-     *  这一拍所有碎片都已经落位（计数到齐才抛），还在演的只有最后那几格的「贴纸按平」，
-     *  它们演在已经完整的画面上，不会有缺口。画笔模式不接这一拍（它等最后一格露面再落笔）。 */
+    /** 最后一块**吸附成功**当刻（`LEVEL_COMPLETE`）：走「完成图直接亮出来」时，只亮图，**不**进结束界面 ——
+     *  此时最后那几格的「贴纸按平」还在演，结束界面留到最后一个 `PIECE_SHOWN` 再弹。
+     *  这一拍所有碎片都已经落位（计数到齐才抛），所以底板不会是线稿。
+     *  画笔模式不接这一拍（它等最后一格露面再落笔，画完自己抛 `END_SHOW`）。 */
     private onLevelComplete(): void {
         if (!this.instant) return;
-        if (this.delay > 0) this.scheduleOnce(this.reveal, this.delay);
-        else this.reveal();
+        if (this.delay > 0) {
+            this.scheduleOnce(this.reveal, this.delay);
+            return;
+        }
+        this.reveal();
     }
 
-    /** 最后一格露面（= 放置那一段演完） */
+    /** 最后一格修复演完（= `PIECE_SHOWN` 凑满总数）。「完成图直接亮出来」模式下**这就是结束界面的那一拍**；
+     *  画笔模式下它也在这里兜底亮图（`LEVEL_COMPLETE` 万一没来）。 */
     private onShown(): void {
         this._shown++;
         if (this._shown < this._total) return;
-        this.unschedule(this.reveal);   // 已经提前亮过了（画笔模式没提前亮，这句是空转）
-        this.reveal();                  // 兜底：`LEVEL_COMPLETE` 没来 / 来晚了，至少别把线稿带去结束界面
+        this.unschedule(this.reveal);
+        this.reveal();
         if (this.instant) this.endShow();
     }
 
@@ -130,13 +134,16 @@ export class SceneBgSwap extends Component {
         const game = this.node.parent;
         const canvas = game ? game.parent : null;
         const ui = canvas ? canvas.getChildByName('UILayer') : null;
+        const progress = canvas
+            ? (canvas.getChildByName('ProgressLayer') || (ui ? ui.getChildByName('ProgressLayer') : null))
+            : null;
         const pick: (Node | null)[] = [
             game ? game.getChildByName('BrokenLayer') : null,
             canvas ? canvas.getChildByName('PiecePoolLayer') : null,
             canvas ? canvas.getChildByName('DragRoot') : null,
             canvas ? canvas.getChildByName('GameCta') : null,
             ui ? ui.getChildByName('GuideLayer') : null,
-            ui ? ui.getChildByName('ProgressLayer') : null,
+            progress,
         ];
         return pick.filter((n): n is Node => !!n);
     }
@@ -160,12 +167,18 @@ export class SceneBgSwap extends Component {
     private reveal(): void {
         if (this._revealed) return;
         this._revealed = true;
+        // 没配修复图（`完成背景` 空着）：这一关没有「成图」可换，那就什么都不动 ——
+        // 不换 `Scene_BG` 的贴图（否则底图会被清空），也不收起场节点（破损图 / 碎片池 / 毯子那一层留着）。
+        if (!this.revealView || !this.revealView.spriteFrame) {
+            if (!this.instant) this.endShow();
+            return;
+        }
         this.fadeOut(this.hideBeforeReveal.length > 0 ? this.hideBeforeReveal : this.layersByName(), this.hideFadeTime);
         if (this.instant || !this.brushEffect || !this.revealView) {
             // 「直接亮出来」（或没配画笔材质 / 没收尾节点）：当刻收尾。
             // 没配画笔材质那条**也要收尾**，否则完成图根本不会出现，玩家看到的还是线稿
             this.complete();
-            if (this.instant) return;   // 收场留给最后一格露面那一拍
+            if (this.instant) return;   // END_SHOW 等最后一个 PIECE_SHOWN 由 onShown 抛
             this.endShow();
             return;
         }

@@ -52,8 +52,10 @@ export class ProgressController extends Component {
     private fillTo(target: number): void {
         if (!this.fill) return;
         this.stopTween();
+        // fillStart 是 Sprite 上「从填充图左边往右缩」的比例；终点固定在 1，
+        // 所以走到满格时 fillRange 应为 1 - fillStart，否则会提前填满、尾巴空转。
         this._tween = tween(this.fill)
-            .to(this.fillTime, { fillRange: target }, { easing: 'quadOut' })
+            .to(this.fillTime, { fillRange: target * (1 - this.fill.fillStart) }, { easing: 'quadOut' })
             .call(() => { this._tween = null; })
             .start();
     }

@@ -34,8 +34,20 @@ export class EndVideo extends Component {
     @property({ displayName: '兜底时长（秒）', tooltip: '自动播放被浏览器拦下、或 COMPLETED 不回调时，超过这么久就当它演完了，别再压着结束界面' })
     fallbackTime = 8;
 
+    @property({ displayName: '结尾渐隐（秒）', tooltip: '播到「片长 − 这个秒数」开始把画面淡到透明，盖掉播完后闪回第一帧那一两帧。0 = 不淡' })
+    fadeOut = 0;
+
     /** 演完（或被跳过）要回调谁。非空 = 还在演 */
     private _done: (() => void) | null = null;
+
+    /** 元数据还没到时 scheduleFade 的重试次数，别无限等 */
+    private _fadeTries = 0;
+
+    /** 画面先藏着（等和静帧对齐的同一帧再揭开），见 `playCovered` */
+    private _covered = false;
+
+    /** 藏着的画面什么时候可以揭 —— 元数据到齐后再等两帧 */
+    private _ready: (() => void) | null = null;
 
     protected onEnable(): void {
         EventBus.on(GameEvent.ORIENTATION_CHANGED, this.fit, this);
@@ -47,7 +59,7 @@ export class EndVideo extends Component {
         if (!this.player) return;
         this.player.node.off(VideoPlayer.EventType.COMPLETED, this.done, this);
         this.player.node.off(VideoPlayer.EventType.CLICKED, this.done, this);
-        this.player.node.off(VideoPlayer.EventType.META_LOADED, this.fit, this);
+        this.player.node.off(VideoPlayer.EventType.META_LOADED, this.onMeta, this);
         this.player.stop();
         this._done = null;
     }
@@ -56,15 +68,45 @@ export class EndVideo extends Component {
     play(onDone: () => void): boolean {
         if (!this.player) return false;
         this._done = onDone;
+        this._fadeTries = 0;
+        this._covered = false;
+        this._ready = null;
         this.node.active = true;
+        this.clearFade();
         this.player.node.on(VideoPlayer.EventType.COMPLETED, this.done, this);
         this.player.node.on(VideoPlayer.EventType.CLICKED, this.done, this);
-        this.player.node.on(VideoPlayer.EventType.META_LOADED, this.fit, this);
+        this.player.node.on(VideoPlayer.EventType.META_LOADED, this.onMeta, this);
         this.begin();
         // 元数据已经被缓存过（同一个元素再放一次不会再抛 `META_LOADED`）时得先自己摆一次
         this.fit();
+        this.scheduleFade();
         this.scheduleOnce(this.done, this.fallbackTime);
         return true;
+    }
+
+    /** 起播但把画面藏着，等调用方在「静帧和视频首帧对齐」的同一帧 `reveal()` 揭开 —— 中间观众只看到一张静图。
+     *  `onReady` = 元数据到齐、第一个非空帧已解出来（大约 metadata 后 0.05s），调用方拿它决定何时交接。 */
+    playCovered(onDone: () => void, onReady: () => void): boolean {
+        if (!this.play(onDone)) return false;
+        this._covered = true;
+        this._ready = onReady;
+        this.clearFade();
+        const v = this.player.nativeVideo;
+        if (v) v.style.opacity = '0';
+        return true;
+    }
+
+    /** 揭开画面。藏、揭必须是同一套样式且不带 transition —— 一帧之内就得换过来，慢了会闪一下底下的游戏 */
+    reveal(): void {
+        if (!this._covered) return;
+        this._covered = false;
+        this._ready = null;
+        const v = this.player.nativeVideo;
+        if (v) {
+            v.style.transition = '';
+            v.style.opacity = '';
+        }
+        this.scheduleFade();
     }
 
     /** 起播。**先试带声音**：结尾路前面必然有过触摸（玩家得拖碎片），页面已经拿到用户激活，
@@ -83,11 +125,52 @@ export class EndVideo extends Component {
         });
     };
 
+    private onMeta = (): void => {
+        this.fit();
+        this.scheduleFade();
+        if (this._covered && this._ready) this.scheduleOnce(this.markReady, 0.05);
+    };
+
+    private markReady = (): void => {
+        const cb = this._ready;
+        if (!cb) return;
+        this._ready = null;
+        cb();
+    };
+
+    /** 按「片长 − fadeOut」排一次淡出。元数据还没到就隔 0.1s 再问，问到 duration 有值为止 */
+    private scheduleFade = (): void => {
+        if (this.fadeOut <= 0 || this._covered) return;
+        const v = this.player.nativeVideo;
+        const dur = v ? v.duration : NaN;
+        if (!isFinite(dur) || dur <= 0) {
+            if (this._fadeTries++ < 60) this.scheduleOnce(this.scheduleFade, 0.1);
+            return;
+        }
+        this.scheduleOnce(this.fadeAway, Math.max(0, dur - this.fadeOut));
+    };
+
+    /** 把元素淡到透明。只能动元素自己的样式 —— 节点的 UIOpacity 管不到画布之上的 DOM 视频 */
+    private fadeAway = (): void => {
+        const v = this.player.nativeVideo;
+        if (!v) return;
+        v.style.transition = 'opacity ' + this.fadeOut + 's linear';
+        v.style.opacity = '0';
+    };
+
+    private clearFade(): void {
+        const v = this.player.nativeVideo;
+        if (!v) return;
+        v.style.transition = '';
+        v.style.opacity = '';
+    }
+
     /** 收摊。`COMPLETED` / `CLICKED` / 兜底三条都走这儿，`_done` 先清掉所以再进来就直接返回 */
     private done = (): void => {
         const cb = this._done;
         if (!cb) return;
         this._done = null;
+        this._ready = null;
         this.node.active = false;
         cb();
     };

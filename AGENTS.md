@@ -141,10 +141,10 @@ Canvas                          Widget 全屏
 │   │   └── ...                 （当前 6 格）
 │   ├── RepairedLayer
 │   └── SlotMaskRoot            （可选）缺口遮罩
+├── ProgressLayer               进度显示（四边不贴，尺寸钉死，见 §7.1；排在 DragRoot 前，拖起的碎片能盖住它）
 ├── EffectLayer                 特效挂载根节点（RepairSweep / RepairReveal / CircleReveal / StickerApply / TrailEmitter）
 ├── UILayer                     用户自建，见 §7.3
 │   ├── GuideLayer              空闲引导（GuideRoot / GuideGhost / GuideFinger）
-│   ├── ProgressLayer           进度显示（四边不贴，尺寸钉死，见 §7.1）
 │   └── CtaLayer                结束界面（CtaRoot → End）+ EndgameCta（失败界面 Fail 也挂这儿）
 └── PiecePoolLayer              碎片池
     └── ScrollView              Widget：底部贴边，高度自适应
@@ -157,7 +157,7 @@ Canvas                          Widget 全屏
 └── PlayableAnalytics           埋点组件（无节点视觉），见 §17
 ```
 
-（`DragRoot` 夹在 `PiecePoolLayer` 与 `UILayer` 之间 —— 拖起来的手感碎片要盖住碎片池，但不能盖住 CTA。）
+（`ProgressLayer` 夹在 `PiecePoolLayer` 与 `DragRoot` 之间；`DragRoot` 再夹在 `ProgressLayer` 与 `EffectLayer` / `UILayer` 之间 —— 拖起来的手感碎片要盖住碎片池和进度条，但不能盖住特效与 CTA。）
 
 **两层背景**：`BackgroundLayer/Bg_Sprite` 是广告整体背景（铺满整屏），`GameLayer/Scene_BG` 是拼图场景背景
 （只有拼图区那么大，空图，修复前的物品是它上面一个个独立节点）。两层之间没有任何代码耦合，纯场景。
@@ -409,6 +409,7 @@ Canvas                          Widget 全屏
 | `pieceGlow` | 碎片不再生成 Glow 子节点与材质 | `gameplay/PieceFactory.ts` |
 | `stickerPeel` | 碎片不再挂 `StickerPeel`，拿起时没有揭角那一下 | `gameplay/PieceFactory.ts`（两处一起） |
 | `trail` | 不生成白点贴图、不建拖尾节点 | `gameplay/TrailEmitter.ts` |
+| `dragFx` | 拖动柔光 + 光点（ReusableDragFx 那套）停用，退回「亮边 + 拖尾」：驱动器不 bind、`PieceFactory` 不挂 `PieceGlow`、`TrailEmitter` 不注册 | `gameplay/DragGlowDriver.ts`（挂 `EffectLayer`；光效是全工程共享的一套 `EffectLayer/DragGlowFx`） |
 | `revealOnRepair` | 修好时不再播序列帧、也不放大，修复图照旧瞬间出现 | `gameplay/RepairReveal.ts` |
 | `stickerApply` | 配了「贴纸贴平揭晓」的槽位不再演那一下 —— 破损图收掉、修复图直接出现 | `gameplay/StickerApply.ts` |
 | `circleReveal` | 配了「圆形扩散揭晓」的槽位退回「序列帧 + 放大」 | `gameplay/CircleReveal.ts` |

@@ -1,0 +1,105 @@
+// Separate expanded Sprite: samples source alpha, never stretches the source artwork.
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: drag-glow-vs:vert
+      frag: drag-glow-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendSrcAlpha: one
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        uvRect: { value: [0, 0, 1, 1] }
+        uvParams: { value: [1.2, 1.2, 0.005, 0.005] }
+        appearance: { value: [2, 12, 0.97, 1.65] }
+        glowColor: { value: [1, 0.99, 0.97, 1], editor: { type: color } }
+}%
+
+CCProgram drag-glow-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+  out vec4 color;
+  out vec2 uv0;
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+    return pos;
+  }
+}%
+
+CCProgram drag-glow-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+  in vec4 color;
+  in vec2 uv0;
+  #pragma builtin(local)
+  layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+  uniform DragGlow {
+    vec4 uvRect;
+    vec4 uvParams;
+    vec4 appearance;
+    vec4 glowColor;
+  };
+  float alphaAt (vec2 uv) {
+    // Outside the original image is transparent, even if its opaque pixels touch an edge.
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+    return CCSampleWithAlphaSeparated(cc_spriteTexture, uvRect.xy + uv * uvRect.zw).a;
+  }
+  vec4 frag () {
+    vec2 normalizedUV = (uv0 - uvRect.xy) / uvRect.zw;
+    vec2 uv = (normalizedUV - 0.5) * uvParams.xy + 0.5;
+    float center = alphaAt(uv);
+    vec2 edgeRadius = uvParams.zw * appearance.x;
+    float edge = 0.0;
+    for (int i = 0; i < 12; i++) {
+      float a = float(i) * 0.5235987756;
+      edge = max(edge, alphaAt(uv + vec2(cos(a), sin(a)) * edgeRadius));
+    }
+    // Gaussian alpha blur is independent of the thin bright rim.
+    vec2 blurStep = uvParams.zw * appearance.y / 3.0;
+    float blurred = 0.0;
+    float total = 0.0;
+    for (int y = -3; y <= 3; y++) {
+      for (int x = -3; x <= 3; x++) {
+        vec2 offset = vec2(float(x), float(y));
+        float weight = exp(-dot(offset, offset) * 0.34);
+        blurred += alphaAt(uv + offset * blurStep) * weight;
+        total += weight;
+      }
+    }
+    float halo = blurred / total * appearance.w;
+    float alpha = clamp(max(edge * appearance.z, halo), 0.0, 1.0) * (1.0 - center);
+    return vec4(glowColor.rgb * color.rgb, alpha * glowColor.a * color.a);
+  }
+}%

@@ -4,16 +4,12 @@
  *   node tools/exec.mjs scene tools/js/set-finale.js                    # 现在的状态：那道横扫关着
  *   node tools/exec.mjs scene tools/js/set-finale.js "{\"sweep\":true}"  # 想把横扫开回来时
  *
- * 时间轴（从「最后一格露面」= 最后一个 `PIECE_SHOWN` 起算）：
+ * 时间轴：
  *
- *   **扫光关着（当前）**：0.0 当刻落笔
- *   扫光开着：            0.0→0.5 **定格**（`RepairSweep.completeDelay`）→ 0.5→1.4
- *                        **一道光横扫整块拼图**（`FeatureFlags.sweepOnComplete` + `completeTime`）
- *                        → 1.4 起落笔（`SceneBgSwap.delay` = 定格 + 横扫）
- *   ……之后看 `SceneBgSwap.instant`：
- *     · **勾着（当前）**：当刻把完成图亮出来（不走画笔），`revealTime` 不起作用 → 抛 `END_SHOW`
- *     · 取消勾选：画笔涂色 `revealTime` 秒（+ 仙尘）→ 抛 `END_SHOW`
- *   → 结尾视频（§18）→ 结束界面。
+ *   **`SceneBgSwap.instant` 勾着（当前）**：从**最后一块落位**（`LEVEL_COMPLETE`）起算，`delay` 之后
+ *   当刻亮完成图并抛 `END_SHOW`（不等最后一格露面、不走画笔）。
+ *   扫光关着（当前）时 `delay = 0`；扫光开着时 `delay = 定格 0.5 + 横扫 0.9`。
+ *   取消勾选：等**最后一格露面**（最后一个 `PIECE_SHOWN`）才落笔，画笔涂 `revealTime` 秒（+ 仙尘）→ `END_SHOW`。
  *
  * 为什么是一对：`SceneBgSwap.delay` 和 `RepairSweep` 那两个数没有事件能替它们传话（§5：事件与发射方
  * 一律不动），只能各配一个延时。**扫光关着时 delay 必须填 0**，否则最后一格露脸之后白等一段 ——
@@ -45,5 +41,5 @@ return {
   brushDelay: bg.delay,
   brushReveal: bg.revealTime,
   instant: bg.instant,
-  toEndShow: +(bg.instant ? bg.delay : bg.delay + bg.revealTime).toFixed(2),
+  toEndShow: bg.instant ? '最后一格 PIECE_SHOWN（不定）' : +(bg.delay + bg.revealTime).toFixed(2),
 };

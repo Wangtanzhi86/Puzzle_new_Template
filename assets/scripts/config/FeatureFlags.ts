@@ -3,13 +3,15 @@ import { _decorator, Component, director } from 'cc';
 const { ccclass, property } = _decorator;
 
 /** 面板不在场时读这里（编辑器编辑模式、面板被误删）：全开，避免少一个开关就玩法残缺。
- *  两个例外：`autoPlay` —— 它改的是玩法本身（玩家放几块之后系统接管），不是「多演一下少演一下」，
+ *  三个例外：`autoPlay` —— 它改的是玩法本身（玩家放几块之后系统接管），不是「多演一下少演一下」，
  *  面板丢了就该退回「玩家自己修完」的老行为，不是替他打完；`snapReveal` —— 它是「换掉目标工程自己那套
- *  修复揭晓，改用 CopyPuzzle 的吸附瞬间时序」，默认关着才是这套工程原本的样子。 */
+ *  修复揭晓，改用 CopyPuzzle 的吸附瞬间时序」；`dragFx` —— 同理，默认关着才是这套工程原本的拖动表现
+ *  （亮边 + 拖尾），新的一套要人自己勾。 */
 const DEFAULTS = {
     pieceGlow: true,
     stickerPeel: true,
     trail: true,
+    dragFx: false,
     revealOnRepair: true,
     stickerApply: true,
     circleReveal: true,
@@ -48,6 +50,9 @@ export class FeatureFlags extends Component {
 
     @property({ displayName: '拖动拖尾', tooltip: '拖动时洒下的白色光点' })
     trail = DEFAULTS.trail;
+
+    @property({ displayName: '拖动柔光（新）', tooltip: 'ReusableDragFx 那套：轮廓柔光 + 光点。打开后它取代「拖动亮边」与「拖动拖尾」两只开关（那两只自动失效）' })
+    dragFx = DEFAULTS.dragFx;
 
     @property({ displayName: '单块修复揭晓', tooltip: '修好时先播一段序列帧，再把修复图放大出来' })
     revealOnRepair = DEFAULTS.revealOnRepair;
@@ -90,6 +95,7 @@ export class FeatureFlags extends Component {
     static get pieceGlow(): boolean { return (FeatureFlags.panel ?? DEFAULTS).pieceGlow; }
     static get stickerPeel(): boolean { return (FeatureFlags.panel ?? DEFAULTS).stickerPeel; }
     static get trail(): boolean { return (FeatureFlags.panel ?? DEFAULTS).trail; }
+    static get dragFx(): boolean { return (FeatureFlags.panel ?? DEFAULTS).dragFx; }
     static get revealOnRepair(): boolean { return (FeatureFlags.panel ?? DEFAULTS).revealOnRepair; }
     static get stickerApply(): boolean { return (FeatureFlags.panel ?? DEFAULTS).stickerApply; }
     static get circleReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).circleReveal; }

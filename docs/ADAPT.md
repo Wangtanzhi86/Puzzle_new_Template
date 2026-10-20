@@ -61,7 +61,7 @@
      九宫格四边各 160（写在 `背景图.jpg.meta` 的 `borderTop/Bottom/Left/Right`）。
      **inset 是可调项**：改 `.meta` → 重新导入 → 看 Game View。
      ⚠️ 当前 inset 是全 0（见现状速查「三处空壳」），等于没切。
-  2. `GameLayer` / `PiecePoolLayer` / `UILayer/ProgressLayer` —— 三处**一条边都不贴**。
+  2. `GameLayer` / `PiecePoolLayer` / `ProgressLayer` —— 三处**一条边都不贴**。
      `PiecePoolLayer` / `ProgressLayer` 尺寸钉死（720×300 / 460×90，作者摆的）；
      **`GameLayer` 的尺寸不是手配的** —— 它连同 `Scene_BG` / `完成背景`（后者是
      `SceneBgSwap.revealView`，要求同尺寸）由 `ui/PuzzleAreaFit.ts` 按拼图区底图的**原始长宽比**

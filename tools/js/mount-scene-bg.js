@@ -2,12 +2,11 @@
  * 给拼图区背景接线：`Canvas/GameLayer/Scene_BG` 下建一个同尺寸的 `完成背景` 子节点，
  * 再建一个 `魔法仙尘` 粒子节点；`Scene_BG` 自己挂 `SceneBgSwap`，把三者接起来。
  *
- * **现在的模式是「直接亮出来」**（`instant = true`），**分两拍**：
- * ① 最后一块**吸附成功当刻**（`LEVEL_COMPLETE`）把 `完成背景` 那张贴图挪到 `Scene_BG` 上 ——
- *    不建材质、不起 tween、不撒仙尘；② **最后一格露面**（最后一个 `PIECE_SHOWN`，= 放置那一段演完）
- * 才抛 `END_SHOW`（下一拍是结尾视频）。画笔涂色那个分支还在代码里（`instant = false` 就退回它）：
- * 一支圆头画笔从左上角斜着来回刷到右下角（和单块修复同一份 `brush-reveal.effect`），
- * `魔法仙尘` 那个 `ParticleSystem2D` 跟着笔头撒，**不提前**、等最后一格露面才落笔。
+ * **现在的模式是「完成图直接亮出来」**（`instant = true`）：最后一块**吸附成功当刻**
+ * （`LEVEL_COMPLETE`）把 `完成背景` 那张贴图挪到 `Scene_BG` 上，并**当刻抛 `END_SHOW`** 弹结束界面 ——
+ * 不建材质、不起 tween、不撒仙尘，也不等最后一格露面。画笔涂色那个分支还在代码里
+ * （`instant = false` 就退回它）：一支圆头画笔从左上角斜着来回刷到右下角（和单块修复同一份
+ * `brush-reveal.effect`），`魔法仙尘` 那个 `ParticleSystem2D` 跟着笔头撒，**不提前**、等最后一格露面才落笔。
  * 两条路的收尾状态一样（贴图在 `Scene_BG` 上、两个子节点都睡着）。
  *
  *   node tools/exec.mjs scene tools/js/mount-scene-bg.js
@@ -93,7 +92,7 @@ if (freshDust) {
 let comp = bg.getComponent('SceneBgSwap');
 if (!comp) comp = bg.addComponent('SceneBgSwap');
 const freshComp = comp.brushEffect !== brush;
-comp.instant = true;   // 现在的模式：最后一格露面当刻亮完成图，不走画笔（见文件头）
+comp.instant = true;   // 现在的模式：最后一块落位当刻亮完成图，结束界面等最后一格修复演完（见文件头）
 comp.brushEffect = brush;
 comp.revealView = sprite;
 comp.dust = dust;

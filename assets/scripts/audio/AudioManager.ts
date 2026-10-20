@@ -1,5 +1,7 @@
 import { _decorator, AudioClip, AudioSource, Component, Enum, Input, input, Node, Tween, tween } from 'cc';
 import { FeatureFlags } from '../config/FeatureFlags';
+import { EndCarousel } from '../ui/EndCarousel';
+import { LevelSelect } from '../ui/LevelSelect';
 import { EventBus } from '../core/EventBus';
 import { GameEvent } from '../core/GameEvent';
 
@@ -24,6 +26,8 @@ export enum AudioEvent {
     PIECE_REPAIRED = 'PIECE_REPAIRED',
     REPAIR_FAILED = 'REPAIR_FAILED',
     PIECE_SHOWN = 'PIECE_SHOWN',
+    /** 胶带揭晓：每一条胶带开始擦出时抛一次（`TapeWipe.play`） */
+    TAPE_STRIP = 'TAPE_STRIP',
     REPAIR_PROGRESS = 'REPAIR_PROGRESS',
     LEVEL_COMPLETE = 'LEVEL_COMPLETE',
     END_SHOW = 'END_SHOW',
@@ -39,6 +43,11 @@ export enum AudioEvent {
     LAST_SHOWN = 'LAST_SHOWN',
     /** 不是 GameEvent：按下「按压音效按钮」列表里那些按钮的那一瞬 */
     BUTTON_DOWN = 'BUTTON_DOWN',
+    /** 不是 GameEvent：结束界面卡片带被真正拖动起来的那一刻（EndCarousel.onSlideStart）。
+     *  停下不看「结束事件」—— 由 onSettle 直接收声 */
+    CAROUSEL_SLIDE = 'CAROUSEL_SLIDE',
+    /** 不是 GameEvent：选了锁着的关卡、锁图标开始晃的那一刻（LevelSelect.onLockShake） */
+    LOCK_SHAKE = 'LOCK_SHAKE',
 }
 
 /**
@@ -54,12 +63,12 @@ const AUTO_SILENT: AudioEvent[] = [AudioEvent.PIECE_PICK, AudioEvent.PIECE_SNAP_
  * 风铃最惨：最后一格吸附成功下一帧就 `mraid.open` 跳商店，`CTA_CLICK` 当场停全部；
  * 按压的那一声同理，松手就是 `CTA_CLICK`，不豁免的话它连按着的那一段都播不完。
  */
-const POST_OVER: AudioEvent[] = [AudioEvent.END_DROP, AudioEvent.LEVEL_COMPLETE, AudioEvent.BUTTON_DOWN];
+const POST_OVER: AudioEvent[] = [AudioEvent.END_DROP, AudioEvent.LEVEL_COMPLETE, AudioEvent.BUTTON_DOWN, AudioEvent.CAROUSEL_SLIDE];
 
 /** 一条音频配置：什么时候响、响什么、多大声、什么时候停 */
 @ccclass('AudioCue')
 export class AudioCue {
-    @property({ type: Enum(AudioEvent), displayName: '激活事件', tooltip: '选「NONE」= 常驻：不绑任何事件，玩家首次点击屏幕后一直循环' })
+    @property({ type: Enum(AudioEvent), displayName: '激活事件', tooltip: '选「NONE」= 常驻：不绑任何事件；点关卡解锁音频、开场视频演完（GAME_START）后一直循环' })
     event: AudioEvent = AudioEvent.NONE;
 
     @property({ type: AudioClip, displayName: '音效', tooltip: '填了「顺序音效列表」的话这一格作废' })
@@ -115,7 +124,9 @@ interface Channel {
  * BGM 和常驻背景音就是把「激活事件」留成 NONE。
  *
  * 三条硬规矩（AppLovin 合规，§8.4）：
- * 1. 玩家第一次碰屏幕之前一声都不出（含 BGM）。碰哪儿都算 —— 碎片池那条路走 PIECE_PICK；
+ * 1. 玩家第一次碰屏幕之前一声都不出（含 BGM）。碰哪儿都算 —— 碎片池那条路走 PIECE_PICK，
+ *    选关按钮走 LEVEL_SELECTED。**常驻音还要再等一拍**：开场视频演完（`GAME_START`）才起，
+ *    免得跟片源音轨抢；
  * 2. 广告被切到后台整体静音，回来接着放常驻音（一次性音效不补）；
  * 3. 结束界面亮出来（`END_SHOW`）就停掉全部、也不再起新的；点 CTA 跳商店再兜一次。
  *
@@ -142,12 +153,21 @@ export class AudioManager extends Component {
     @property({ type: [Node], displayName: '按压音效按钮', tooltip: '按下去那一刻响「激活事件 = 按下按钮」那条音效。三颗 CTA（常驻按钮 / 结束界面 / 失败界面）都挂进来' })
     buttons: Node[] = [];
 
+    @property({ type: EndCarousel, displayName: '结束界面卡片带', tooltip: '「激活事件 = 卡片滑动停下」那条音效听它的落定回调' })
+    carousel: EndCarousel = null;
+
+    @property({ type: LevelSelect, displayName: '选关', tooltip: '「激活事件 = 点了锁着的关卡」那条音效听它的锁晃动回调' })
+    select: LevelSelect = null;
+
     @property({ displayName: '总音量' })
     volume = 1;
 
     private _channels: Channel[] = [];
     private _nodes: Node = null;
+    /** 页面已拿到用户激活（点关卡那一刻）—— 一次性音效从这儿起就能响 */
     private _unlocked = false;
+    /** 开场演完了（`GAME_START`）—— BGM 与常驻音要等这一下，别跟开头视频的音轨抢 */
+    private _started = false;
     private _muted = false;
     private _closed = false;
     /** 系统接管中（`AUTO_PLAY` 起、`GAME_OVER` 止）：这段时间 `AUTO_SILENT` 那几条不响 */
@@ -161,6 +181,9 @@ export class AudioManager extends Component {
         // 得先把闸门打开，配置里那一声才放得出来（EventBus 按注册顺序派发）
         input.on(Input.EventType.TOUCH_START, this.unlock, this);
         EventBus.on(GameEvent.PIECE_PICK, this.unlock, this);
+        // 点关卡就算用户激活：此后的一次性音效立刻能响，常驻的还要等开场视频演完
+        EventBus.on(GameEvent.LEVEL_SELECTED, this.unlock, this);
+        EventBus.on(GameEvent.GAME_START, this.onGameStart, this);
         EventBus.on(GameEvent.END_SHOW, this.onEnd, this);
         EventBus.on(GameEvent.CTA_CLICK, this.onCtaClick, this);
         EventBus.on(GameEvent.AUDIO_MUTE, this.onMute, this);
@@ -169,11 +192,18 @@ export class AudioManager extends Component {
         EventBus.on(GameEvent.AUTO_PLAY, this.onAutoPlay, this);
         EventBus.on(GameEvent.GAME_OVER, this.onGameOver, this);
         this.build();
+        if (this.carousel) {
+            this.carousel.onSlideStart = this.onCarouselSlide;
+            this.carousel.onSettle = this.onCarouselSettle;
+        }
+        if (this.select) this.select.onLockShake = this.onLockShake;
     }
 
     protected onDisable(): void {
         input.off(Input.EventType.TOUCH_START, this.unlock, this);
         EventBus.off(GameEvent.PIECE_PICK, this.unlock, this);
+        EventBus.off(GameEvent.LEVEL_SELECTED, this.unlock, this);
+        EventBus.off(GameEvent.GAME_START, this.onGameStart, this);
         EventBus.off(GameEvent.END_SHOW, this.onEnd, this);
         EventBus.off(GameEvent.CTA_CLICK, this.onCtaClick, this);
         EventBus.off(GameEvent.AUDIO_MUTE, this.onMute, this);
@@ -181,6 +211,11 @@ export class AudioManager extends Component {
         EventBus.off(GameEvent.PIECE_SHOWN, this.onShown, this);
         EventBus.off(GameEvent.AUTO_PLAY, this.onAutoPlay, this);
         EventBus.off(GameEvent.GAME_OVER, this.onGameOver, this);
+        if (this.carousel) {
+            this.carousel.onSlideStart = null;
+            this.carousel.onSettle = null;
+        }
+        if (this.select) this.select.onLockShake = null;
         for (const ch of this._channels) {
             EventBus.off(ch.cue.event, ch.onStart);
             EventBus.off(ch.cue.stopEvent, ch.onStop);
@@ -233,8 +268,8 @@ export class AudioManager extends Component {
             if (!ch.resident) {
                 if (cue.event === AudioEvent.BUTTON_DOWN) {
                     for (const btn of this.buttons) btn.on(Node.EventType.TOUCH_START, ch.onButton, this);
-                } else if (cue.event !== AudioEvent.LAST_SHOWN) {
-                    // LAST_SHOWN 不是总线事件，它由下面的 onShown 凑满总数时自己点名
+                } else if (cue.event !== AudioEvent.LAST_SHOWN && cue.event !== AudioEvent.CAROUSEL_SLIDE && cue.event !== AudioEvent.LOCK_SHAKE) {
+                    // LAST_SHOWN / CAROUSEL_SLIDE 都不是总线事件，由下面的 onShown / onCarouselSlide 自己点名
                     EventBus.on(cue.event, ch.onStart);
                 }
             }
@@ -243,11 +278,23 @@ export class AudioManager extends Component {
         }
     }
 
-    /** 第一次真实触摸。碎片池上的触摸被 content 认领、全局 input 收不到，那条路由 PIECE_PICK 顶上 */
+    /** 第一次真实触摸。碎片池上的触摸被 content 认领、全局 input 收不到，那条路由 PIECE_PICK 顶上；
+     *  选关按钮同理，所以 `LEVEL_SELECTED` 也直接走这条。只开闸，不出声 —— 常驻音见 `startResidents` */
     private unlock(): void {
         if (this._unlocked) return;
         this._unlocked = true;
-        for (const ch of this._channels) if (ch.resident) this.playCue(ch);
+        this.startResidents();
+    }
+
+    /** 开场（选关 → 挡板 → 开头视频）演完：这时候才让 BGM 与常驻音进来 */
+    private onGameStart(): void {
+        this._started = true;
+        this.startResidents();
+    }
+
+    private startResidents(): void {
+        if (!this._unlocked || !this._started || this._muted || this._closed) return;
+        for (const ch of this._channels) if (ch.resident && !ch.live) this.playCue(ch);
     }
 
     private playCue(ch: Channel): void {
@@ -368,6 +415,28 @@ export class AudioManager extends Component {
     private onEnd(): void {
         this.stopAll();
     }
+
+    /** 点了锁着的关卡：先解锁再响（这一下发生在选关，全局 input 那条路不一定收到） */
+    private onLockShake = (): void => {
+        this.unlock();
+        for (const ch of this._channels) {
+            if (ch.cue.event === AudioEvent.LOCK_SHAKE) this.playCue(ch);
+        }
+    };
+
+    /** 卡片被拖动起来：只认 CAROUSEL_SLIDE 那一条，不是总线事件 */
+    private onCarouselSlide = (): void => {
+        for (const ch of this._channels) {
+            if (ch.cue.event === AudioEvent.CAROUSEL_SLIDE) this.playCue(ch);
+        }
+    };
+
+    /** 卡片滑动停下：同一条收声（配了渐出就按渐出走） */
+    private onCarouselSettle = (): void => {
+        for (const ch of this._channels) {
+            if (ch.cue.event === AudioEvent.CAROUSEL_SLIDE && ch.live) this.stopChannel(ch);
+        }
+    };
 
     private onCtaClick(): void {
         this.stopAll();

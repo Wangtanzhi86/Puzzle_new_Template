@@ -5,6 +5,7 @@ import { OverlayMode } from '../data/LevelTypes';
 import { BrushReveal } from '../gameplay/BrushReveal';
 import { CircleReveal } from '../gameplay/CircleReveal';
 import { RepairReveal } from '../gameplay/RepairReveal';
+import { SlotAfterSnap } from '../gameplay/SlotAfterSnap';
 import { SnapReveal } from '../gameplay/SnapReveal';
 import { StickerApply } from '../gameplay/StickerApply';
 import { PeelConfig } from '../gameplay/StickerPeel';
@@ -230,6 +231,14 @@ export class PieceSlot extends Component {
         // 并抛一次失败事件 —— 这一格照旧算修好（进度照加），怎么终局由听这条事件的人决定
         this._met = this.meetsRequires();
         if (this.altView && !this._met) EventBus.emit(GameEvent.REPAIR_FAILED, slotIndex);
+        // 挂了「吸附之后」的整段表现（行李架落下 / 打开节点 / 胶带擦出）：
+        // 不勾「等揭晓演完」就当场收掉这一格的破损图 / 修复图，演完才抛 PIECE_SHOWN
+        const stage = this.getComponent(SlotAfterSnap);
+        if (stage && !stage.afterShown) {
+            this.hideSlot();
+            this.playStage(stage, this.spotDone);
+            return true;
+        }
         // 整格隐藏（换人那格）：不演任何揭晓 —— 破损图 / 修复图化掉，隔 swapDelay 两个角色交叉淡入
         if (this.hideOnRepair) {
             this.softSwap();
@@ -305,11 +314,33 @@ export class PieceSlot extends Component {
         this.spotDone();
     };
 
-    /** 收尾动作演完（或这一格根本没有动作）：这一格这才算露面 */
+    /** 收尾动作演完（或这一格根本没有动作）：这一格这才算露面。
+     *  挂了「等揭晓演完」的整段表现时，先把它演完再算露面。 */
     private spotDone = (): void => {
+        const stage = this.getComponent(SlotAfterSnap);
+        if (stage && stage.afterShown) {
+            this.playStage(stage, this.finishShown);
+            return;
+        }
+        this.finishShown();
+    };
+
+    private finishShown = (): void => {
         EventBus.emit(GameEvent.PIECE_SHOWN, this._index);
         EventBus.emit(GameEvent.GUIDE_RESUME);
     };
+
+    private playStage(stage: SlotAfterSnap, done: () => void): void {
+        if (stage.delay > 0) this.scheduleOnce(() => stage.play(done), stage.delay);
+        else stage.play(done);
+    }
+
+    /** 整格直接收掉：破损图 + 修复图（含「达标后的修复图」）一起消失，只留槽位节点自己活着给表现跑 */
+    private hideSlot(): void {
+        this.hideBroken();
+        if (this.repairedView) this.repairedView.hide();
+        if (this.altView) this.altView.hide();
+    }
 
     /** 修复图铺满了（圆形扩散 / 画笔涂色）：这一格才算露面 —— 先把垫在底下的破损图收掉 */
     private covered = (): void => {

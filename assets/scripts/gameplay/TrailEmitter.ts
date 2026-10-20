@@ -34,7 +34,7 @@ export class TrailEmitter extends Component {
     private _hit = new Vec3();
 
     protected onLoad(): void {
-        if (!FeatureFlags.trail) return;
+        if (!FeatureFlags.trail || FeatureFlags.dragFx) return;
         const frame = makeDotFrame();
         this._pool.register(TrailEmitter.KEY, () => {
             const node = new Node('TrailDot');
@@ -49,7 +49,7 @@ export class TrailEmitter extends Component {
     }
 
     protected onEnable(): void {
-        if (!FeatureFlags.trail) return;
+        if (!FeatureFlags.trail || FeatureFlags.dragFx) return;
         EventBus.on(GameEvent.PIECE_PICK, this.onPick, this);
         EventBus.on(GameEvent.PIECE_SNAP_SUCCESS, this.onRelease, this);
         EventBus.on(GameEvent.PIECE_SNAP_FAIL, this.onRelease, this);

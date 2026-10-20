@@ -26,7 +26,7 @@ assets/scripts/
 │   ├── GroundWater.ts       地上脏水：修错时从上到下刷出来（当前无槽位配）
 │   ├── BroomSweep.ts        收尾动作「扫地」（当前无槽位配）
 │   ├── SprayAction.ts       收尾动作「喷瓶」（当前无槽位配）
-│   └── SceneBgSwap.ts       全部修完：把完成图亮到拼图区底图上（现在是「直接亮出来」，画笔那套还在）+ 抛 END_SHOW
+│   └── SceneBgSwap.ts       全部修完：把完成图亮到拼图区底图上（现在是「直接亮出来」，画笔那套还在）；最后一个 PIECE_SHOWN 才抛 END_SHOW
 ├── gameplay/
 │   ├── PieceFactory.ts      碎片视图工厂（创建 / 回收 / 复位）
 │   ├── PiecePool.ts         碎片池（Layout 内横向排列，对象池复用，分批上场）
