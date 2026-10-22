@@ -106,9 +106,15 @@ content.setParent(view);
 const ctContent = content.addComponent(cc.UITransform);
 ctContent.setAnchorPoint(0.5, 1);
 ctContent.setContentSize(720 - EDGE * 2, 100);
-// ⚠️ content 上**不能**挂 Widget：AlignMode.ALWAYS 会每帧把 position 按 top 摆回去，
-// 把 ScrollView 的滚动量一起吃掉了（表现就是「拖不动、位置也不对」）。
-// content 的位置由 ScrollView 自己管，初始先贴着 view 顶边。
+// content 顶边必须跟着 view 走：锚点在顶，但 y 不能写死（写死的是 1280 稿的 viewH/2），
+// 长屏 FIXED_WIDTH 把 view 拉高后 y 不变，首行就会往下坠。
+// 用 ON_WINDOW_RESIZE 而不是 ALWAYS：只在画布策略变化时对齐一次，不跟 ScrollView 的滚动量打架。
+const cw = content.addComponent(cc.Widget);
+cw.isAlignTop = true;
+cw.top = 0;
+cw.isAlignBottom = false;
+cw.isAlignVerticalCenter = false;
+cw.alignMode = cc.Widget.AlignMode.ON_WINDOW_RESIZE;
 const layout = content.addComponent(cc.Layout);
 layout.type = cc.Layout.Type.GRID;
 layout.startAxis = cc.Layout.AxisDirection.HORIZONTAL;

@@ -25,6 +25,7 @@ const DEFAULTS = {
     audio: true,
     autoPlay: false,
     snapReveal: false,
+    swapAlternate: true,
 };
 
 /**
@@ -92,6 +93,9 @@ export class FeatureFlags extends Component {
     @property({ displayName: '吸附瞬间时序（CopyPuzzle）', tooltip: '开：修好那一刻改演 CopyPuzzle 那套 —— 修复图弹一下（0.6 秒内 0.96 → 1.1 → 1）、淡出到 0 再从圆心重新扩出来，扩散带边缘提亮和水平波纹。只有填了「吸附瞬间揭晓」的槽位走它，且整格接管（胶带 / 换节点 / 圆扩散 / 序列帧都不再发生）。关：整条回退到原来的揭晓' })
     snapReveal = DEFAULTS.snapReveal;
 
+    @property({ displayName: '换节点来回交叉淡入', tooltip: '女主换表情 / 小三换动作这类节点切换时，新旧两套来回交叉淡入，频率逐次变慢，最后固定到新状态。次数与节奏在 Scene_BG 的 SlotSwap 上' })
+    swapAlternate = DEFAULTS.swapAlternate;
+
     @property({ displayName: '自动打关', tooltip: '玩家自己修够几块之后系统接管，剩下的碎片一块接一块自动飞过去吸附。门槛与节奏在 GameLayer 的「自动打关」组件上' })
     autoPlay = DEFAULTS.autoPlay;
 
@@ -117,4 +121,5 @@ export class FeatureFlags extends Component {
     static get audio(): boolean { return (FeatureFlags.panel ?? DEFAULTS).audio; }
     static get autoPlay(): boolean { return (FeatureFlags.panel ?? DEFAULTS).autoPlay; }
     static get snapReveal(): boolean { return (FeatureFlags.panel ?? DEFAULTS).snapReveal; }
+    static get swapAlternate(): boolean { return (FeatureFlags.panel ?? DEFAULTS).swapAlternate; }
 }

@@ -22,7 +22,7 @@ interface SweepHandle {
  * 挂在 EffectLayer 上（全局一个实例），不用往槽位填引用 —— 它自己听 LEVEL_BUILT 拿槽位表。
  * 建关时先把材质挂上、进度按 0 封住；之后**不再一起扫**，等引导（GUIDE_PIECE）指到哪一块，
  * 才把那一块的描边转出来，每格只演一次。引导开关关掉时退回老行为：GAME_START 之后逐格扫。
- * 预填槽位跳过（那一格由 PrefillFlight 的飞入 + 金色烟花接管）。
+ * 预填槽位跳过（那一格是开局常驻的背景，不参与引导）。
  *
  * 开关是 `FeatureFlags.radialSweep` —— 关掉就完全不挂材质，开场照旧直接显示描边。
  */

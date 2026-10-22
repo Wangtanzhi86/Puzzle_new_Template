@@ -76,7 +76,8 @@ const repSwap = ensureSwap(slot1.node, slot2, [rep], [rep2], 0.2, 0.35, true);
 const action1 = sceneBg.getChildByName('女主动作1');
 const action2 = sceneBg.getChildByName('女主动作二');
 const nervous = action1.getChildByName('女主紧张表情');
-const roleSwap = ensureSwap(sceneBg, slot3, [action1], [action2], 0.2, 0.35, false);
+const roleSwap = ensureSwap(sceneBg, slot3, [action1], [action2], 0, 0.35, false);
+roleSwap.waitShown = true;
 const prelude = ensureSwap(sceneBg, null, [], [nervous], 0.25, 0.3, true);
 
 let burstNode = effectLayer.getChildByName('GoldenBurst');

@@ -62,25 +62,31 @@ uuid 读 `assets/recourses/*.mp4.meta`。⚠️ 重跑会把 `region` / `fallbac
 
 ## 开头视频（选关之后）
 
-> ⚠️ **2026-10-20 起这条路先跳过**：场景里 `GameIntro.video` 已置空（`IntroLayer/开头视频` 还留着，`active = false`），
-> 同日 `GameIntro.skip = true` —— **卡片放大铺满那一段也不演了**，点关隔一帧直接 `finish()` 收场并抛 `GAME_START`。
-> 下面记录的是此前的视频播放设计；要恢复视频就把 `video` 指回 `IntroLayer/开头视频` 并取消 `skip`。
+> **2026-10-21**：`GameIntro.video` 指 `Canvas/IntroLayer/开头视频`，`GameIntro.skip = false`；
+> 片源 `assets/recourses/开头视频.mp4`（1.01MB、720×404、2.508s，uuid `2404b7c0-3507-41ea-bf15-10634c279e8e`）。
+> **同日删掉了卡片放大 / 残影 / 缩放模糊**：现在点关直接起播视频。
 
-**是什么**：玩家点完关卡，`Canvas/IntroLayer` 的两块挡板**当场**向两侧滑开，**同一刻**起播
-`assets/recourses/开头视频.mp4`（989KB，uuid 见其 `.mp4.meta`）。视频**铺满整屏**（不是拼图区），
-播完（或点一下跳过、或 `fallbackTime = 12s` 兜底）才算开场结束。
+**是什么**：玩家点完关卡，`GameIntro` 直接调 `EndVideo.play()` 起播 `开头视频`，
+视频按 `EndVideo.region`（= `Canvas`）的 cover 取景铺满整屏。播完 / 点一下 / `fallbackTime = 5s` 兜底
+→ `finish()` 收起 `IntroLayer`，并抛 `GUIDE_RESUME` + `GAME_START`。
 
 | 位置 | 是什么 |
 |---|---|
 | `Canvas/IntroLayer/开头视频` | 节点：`cc.UITransform`（720×1280 占位，**不给 Widget**）+ `cc.VideoPlayer` + `EndVideo`；平时 `active = false` |
+| `cc.VideoPlayer` | `clip` = 片源（**换片只动这一处**）；`playOnAwake = false`、`mute = false`、`keepAspectRatio = true`、`stayOnBottom = false` |
 | `EndVideo.region` | 指 **`Canvas`**（整屏铺满、溢出裁掉）。和结尾视频复用同一个组件，只是区域不同 |
-| `GameIntro.video` | 指上面那个 `EndVideo`。`GameIntro` 只管挡板 tween，**视频播完由它回调 `finish()`** |
-| `GameIntro.slideTime / sweep` | 挡板滑出时长 / 距离。滑出与视频起播是同一帧，**不再有停留与标题** |
-| `EndVideo.fadeOut` | 开头这个是 **0.5 秒**（结尾视频留 0 = 不淡）。播到「片长 − 0.5s」把 DOM 元素的 `opacity` 淡到 0 —— `ended` 那一两帧浏览器会闪回第一帧，淡到透明就看不见 |
+| `GameIntro.video` | 指上面那个 `EndVideo`；视频播完由它回调 `finish()` |
+| `GameIntro.skip` | **`false`**；勾上 = 点关直接 `finish()`，视频不演 |
+| `EndVideo.fallbackTime` | **5 秒**（片长 2.508s，留一倍余量） |
+| `EndVideo.fadeOut` | **0.3 秒**：播到「片长 − 0.3s」把 DOM 元素淡到透明，盖掉播完后闪回首帧 |
+
+**片源与裁切**：新片源是 **720×404（1.78:1）**，正片 **2.508 秒**。`region = Canvas` 走的是
+**cover（取大铺满）**；竖屏 720×1280 下为了铺满高度会放大约 3.17 倍，**整幅宽度会裁掉约 68%（左右各约 34%）**。
+现在是按「全屏铺满」接的；若要完整显示整幅画面，得给 `EndVideo` 加 contain 模式（或把 region
+改成 16:9 的框）—— 这次没做，等确认构图后再定。
 
 **结尾不能硬切**：`<video>` 播完会回到首帧再被 `visibility: hidden` 藏掉，中间那一下会闪一下首帧。
-`EndVideo.fadeOut = 0.5` 在片尾前 0.5 秒起一段 CSS `opacity` 过渡，收摊时画面已经是透明的。
-（`UIOpacity` 管不到画布之上的 DOM 视频，只能写元素自己的样式；`done()` 里先置 `active = false` 再回调，`onDisable` 的 `visibility: hidden` 兜底。）
+`EndVideo.fadeOut = 0.3` 在片尾前起一段 CSS `opacity` 过渡，收摊时画面已经是透明的。
 
 **这条流程里没有「点击屏幕开始」**：`GameIntro.finish()` 直接把 `IntroLayer` 收起来，抛
 `GUIDE_RESUME`（空闲引导解冻）与 **`GAME_START`**（音频那盘的起跑线）。
@@ -96,7 +102,11 @@ uuid 读 `assets/recourses/*.mp4.meta`。⚠️ 重跑会把 `region` / `fallbac
 node tools/exec.mjs scene tools/js/mount-intro-video.js "{\"clip\":\"<片源 uuid>\"}"
 ```
 
-**体积**：989KB × 1.25 ≈ **+1.24MB HTML**。加上结尾视频那份，两片合计约 +2.3MB，**交审前核一遍 < 5MB**。
+uuid 读 `assets/recourses/开头视频.mp4.meta`。⚠️ 重跑会把 `region` / `fallbackTime` / `fadeOut`
+复位成脚本里的值（5 / 0.3）。
 
-**⚠️ 还没验的**：① 视频 12 秒兜底是拍出来的，片长若更长要往上调；② 整屏 cover 裁切后构图；
-③ 视频那一下的触摸全被 DOM 元素吃掉（跳过只能听 `CLICKED`），演完节点睡回去触摸才穿得过。
+**体积**：1.01MB × 1.25 ≈ **+1.26MB HTML**。加上结尾视频那份，交审前核一遍 < 5MB。
+
+**⚠️ 还没验的**：① 有声自动播放到底放不放行（真机 / 真容器才验得到）；② 720×404 片源按
+cover 铺满竖屏后构图还剩多少（整幅宽度裁 68%，可能只剩中间一条）；③ `CLICKED` 跳过在容器里灵不灵；
+④ Safari 的 blob MIME 与 `HTMLSourceElement` 那两条修复（得在单文件产物里验）。

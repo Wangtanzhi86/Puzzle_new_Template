@@ -38,6 +38,12 @@ export class CtaController extends Component {
     @property({ type: [Node], displayName: '结束界面出现时收掉的节点', tooltip: '亮卡之前先收掉这些 gameplay 节点（例：BrokenLayer）—— 它们会被结束卡盖住，留着只是白画' })
     hideNodes: Node[] = [];
 
+    @property({ type: [Node], displayName: '等这些节点藏好再亮', tooltip: '留空 = 立即亮。例：三个剧情气泡，等最后一句演完、气泡藏好再进结束界面' })
+    waitNodes: Node[] = [];
+
+    @property({ displayName: '等气泡的缓冲（秒）', tooltip: 'END_SHOW 后先等这么久再检查，避开同一帧的 PIECE_SHOWN 回调' }) waitGrace = 0.1;
+    @property({ displayName: '气泡检查间隔（秒）' }) waitPoll = 0.05;
+
     @property({ displayName: '背景淡入时长（秒）', tooltip: '淡完这两个才开始往下落' }) bgFadeTime = 0.25;
     @property({ displayName: '下落时长（秒）' }) dropTime = 0.5;
     @property({ displayName: '出发高度（屏幕顶边之上 px）', tooltip: '两个都从这儿起步，再落到编辑器里摆好的位置' }) dropMargin = 140;
@@ -51,6 +57,7 @@ export class CtaController extends Component {
 
     private _fade: UIOpacity = null;
     private _drops: Drop[] = [];
+    private _waiting = false;
 
     protected onLoad(): void {
         if (this.ctaRoot) this.ctaRoot.active = false;
@@ -67,12 +74,42 @@ export class CtaController extends Component {
         if (this.ctaButton) this.ctaButton.node.off(Button.EventType.CLICK, this.onClick, this);
         for (const d of this._drops) Tween.stopAllByTarget(d.state);
         this._drops.length = 0;
+        this._waiting = false;
         this.unscheduleAllCallbacks();
     }
 
     /** `END_SHOW` 一到：配了结尾视频就先演它，演完（或玩家点一下跳过）再亮结束界面。
      *  没配 / 没配播放器就让 `play()` 返回 false，照旧当场亮 —— 视频这一拍是可选表现，不能卡住 CTA。 */
     private onEndShow(): void {
+        if (this._waiting) return;
+        this._waiting = true;
+        // 等一帧再判：`END_SHOW` 可能比 `BubbleSequence` 的 `PIECE_SHOWN` 回调先到，
+        // 此刻最后一个气泡还没醒，直接判会当成「没有气泡」当场亮结束界面。
+        this.scheduleOnce(this.beginEnd, this.waitGrace);
+    }
+
+    private beginEnd(): void {
+        if (this.hasVisibleWaitNode()) {
+            this.schedule(this.checkWaitNodes, this.waitPoll);
+            return;
+        }
+        this._waiting = false;
+        this.playEnd();
+    }
+
+    private checkWaitNodes(): void {
+        if (this.hasVisibleWaitNode()) return;
+        this.unschedule(this.checkWaitNodes);
+        this._waiting = false;
+        this.playEnd();
+    }
+
+    private hasVisibleWaitNode(): boolean {
+        for (const n of this.waitNodes) if (n && n.activeInHierarchy) return true;
+        return false;
+    }
+
+    private playEnd(): void {
         if (this.endVideo && this.endVideo.play((): void => this.show())) return;
         this.show();
     }

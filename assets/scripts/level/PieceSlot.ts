@@ -37,7 +37,7 @@ export class PieceSlot extends Component {
     @property({ displayName: '碎片序号', tooltip: '碎片池按它排列，也决定这块碎片属于哪个缺口' })
     pieceId = 0;
 
-    @property({ displayName: '开局已修好（预填）', tooltip: '勾上 = 关卡一建好这一格就是修复后的样子，碎片池里也不会出现它。修复完成事件照常补发，进度条从它算起' })
+    @property({ displayName: '开局常驻（已修好）', tooltip: '勾上 = 关卡一建好这一格就是修复后的样子，碎片池里不会出现它，也不计入进度；适合开场就摆在那里的背景格' })
     preFilled = false;
 
     @property({ displayName: '吸附半径（px）', tooltip: '只在 SnapSystem「吸附范围形状」= 圆（0）时生效：圆形半径，0 = 按下一条自动算。矩形模式（默认）不读它，读下面的「矩形吸附比例」' })
@@ -228,9 +228,8 @@ export class PieceSlot extends Component {
         if (this.hideWithBroken) this.hideWithBroken.active = false;
     }
 
-    /** 开局预填：逻辑上先算修好，画面也先铺好 —— 开场后由 `PrefillFlight` 调 `resetPrefill()`
-     *  退回破损态再补演。场景里没有补演组件时，就是「一建好就修好」的老行为。
-     *  只由 `LevelFactory` 建关时调一次。 */
+    /** 开局常驻：逻辑上先算修好，画面直接铺成修复态。不退回破损态、不补演，
+     *  它只是背景里已经摆好的那一块。只由 `LevelFactory` 建关时调一次。 */
     prefill(slotIndex: number): void {
         if (this._repaired) return;
         this._repaired = true;
@@ -240,32 +239,6 @@ export class PieceSlot extends Component {
         const view = this.showView;
         if (view) view.show(this.overlayMode === OverlayMode.IMMEDIATE);
     }
-
-    /** 补演前退回破损态：收掉修复图、放回破损图。`_repaired` 不动 —— 碎片池与吸附判据照旧当它已修好。 */
-    resetPrefill(): void {
-        if (!this.preFilled || !this._repaired) return;
-        const view = this.showView;
-        if (view) view.hide();
-        this.brokenView.node.active = true;
-        if (this.hideWithBroken) this.hideWithBroken.active = true;
-    }
-
-    /** 碎片已经飞到缺口中心：开演这一格的揭晓（有金色烟花就整格走它）。演完才抛 `PREFILL_DONE`。 */
-    playPrefill(): void {
-        if (!this.preFilled || !this._repaired) return;
-        if (this.fireworkReveal && this.fireworkReveal.handles(this)) {
-            this.fireworkReveal.play(this, this.prefillShown);
-            return;
-        }
-        const view = this.showView;
-        if (view) view.show(this.overlayMode === OverlayMode.IMMEDIATE);
-        this.prefillShown();
-    }
-
-    private prefillShown = (): void => {
-        this.hideBroken();
-        EventBus.emit(GameEvent.PREFILL_DONE, this._index);
-    };
 
     /** 返回 true 表示这次真的修好了（重复吸附同一缺口会被挡掉）。
      *  `slotIndex` 会跟着 `PIECE_SHOWN` 抛出去 —— 吸附和修复图露面可能不在同一时刻
@@ -277,6 +250,7 @@ export class PieceSlot extends Component {
         // 这一格整段表现（揭晓 + 收尾动作）演完之前，空闲引导的计时器停住 —— 不然引导会盖在
         // 正在播的动画上。演完在 spotDone 里放行（多格同时在飞就累计）
         EventBus.emit(GameEvent.GUIDE_HOLD);
+        EventBus.emit(GameEvent.DRAG_HOLD);
         // 两种状态：前置槽位都修好了才算达标。没达标就展示「未达标」那张修复图（`showView` 选的），
         // 并抛一次失败事件 —— 这一格照旧算修好（进度照加），怎么终局由听这条事件的人决定
         this._met = this.meetsRequires();
@@ -383,6 +357,7 @@ export class PieceSlot extends Component {
     private finishShown = (): void => {
         EventBus.emit(GameEvent.PIECE_SHOWN, this._index);
         EventBus.emit(GameEvent.GUIDE_RESUME);
+        EventBus.emit(GameEvent.DRAG_UNLOCK);
     };
 
     private playStage(stage: SlotAfterSnap, done: () => void): void {

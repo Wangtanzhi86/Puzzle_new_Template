@@ -215,7 +215,7 @@ Canvas                          Widget 全屏
 | `PIECE_REPAIRED` | RepairSystem | `slotIndex, progress` | EndgameCta（**修满 `winCount` 就凭它当场跳**） |
 | `REPAIR_FAILED` | PieceSlot（**配了「前置槽位 + 达标后的修复图」的那格**） | `slotIndex` | EndgameCta, GroundWater, AudioManager, **PlayableAnalytics** |
 | `PIECE_SHOWN` | PieceSlot | `slotIndex` | RepairSweep, EndgameCta（**只剩失败路**）, SceneBgSwap（**数到最后一格 → 抛 `END_SHOW`**）, AudioManager（数到最后一格 → 魔法光粒） |
-| `PREFILL_DONE` | PieceSlot（预填格补演演完） | `slotIndex` | RepairSystem（**这时才把这一格算进进度**） |
+| `BUBBLE_SHOW` | BubbleSequence | `index`（1 / 2 / 3） | AudioManager（播对应的 `气泡1/2/3` 音效）, SlotSwap（`waitBubble` 等于该序号时换人） |
 | `REPAIR_PROGRESS` | RepairSystem | `current, total` | ProgressController, **PlayableAnalytics** |
 | `LEVEL_COMPLETE` | RepairSystem（计数到齐 = **最后一块吸附成功当刻**） | — | RepairSweep, ProgressController, GuideController, AudioManager, **SceneBgSwap（走「直接亮出来」时凭它当刻亮完成图，§18 前面那条）** |
 | `END_SHOW` | SceneBgSwap（**最后一格露面**那一刻 = 放置那一段演完） | — | CtaController（**配了结尾视频就先演它、演完才亮界面**，§18）, AudioManager（停全部音） |
@@ -223,14 +223,15 @@ Canvas                          Widget 全屏
 | `GAME_OVER` | EndgameCta（终局那一跳发出去之前） | — | DragController, PiecePool, GuideController, GameCta, AudioManager（掐掉自动打关音）, **PlayableAnalytics** |
 | `AUTO_PLAY` | AutoPlayer（玩家修够门槛、系统接管那一刻） | — | DragController, PiecePool, GuideController, AudioManager（接管期间不放拿起 / 放置）, **StickerApply（接管后不演收尾脉冲）** |
 | `GUIDE_HIDE` | DragController | — | GuideController |
-| `GUIDE_HOLD` / `GUIDE_RESUME` | PieceSlot（`repair()` 开头 / `spotDone()` 末尾，**一格一段**） | — | GuideController |
+| `GUIDE_HOLD` / `GUIDE_RESUME` | PieceSlot（`repair()` 开头 / `finishShown()` 末尾）、BubbleSequence（整段气泡）、SlotSequence（角色序列）、GameEntry / GameIntro（开场） | — | GuideController |
+| `DRAG_HOLD` / `DRAG_UNLOCK` | PieceSlot（`repair()` 开头 / `finishShown()` 末尾）、BubbleSequence（整段气泡）、SlotSequence（角色序列） | — | **DragController（计数 > 0 时不许拿下一块）** |
 | `GUIDE_PIECE` | GuideController（每一遍引导指到某格时） | `slotIndex` | RadialSweep（那一格的白色描边才转出来；每格只演一次） |
 | `CTA_SHOW` / `CTA_CLICK` | CtaController / EndgameCta / GameCta | — | 平台回调, AudioManager（`CTA_CLICK` 停全部音）, **PlayableAnalytics** |
 | `ORIENTATION_CHANGED` | GameEntry | `isPortrait` | DragController, PieceGlow, TrailEmitter, LandscapeLayout, BackgroundSwap, PiecePool, GameCta |
 | `AUDIO_MUTE` | MraidBridge | `muted` | AudioManager |
 
-**事件与发射方一律不动**：接埋点（§17）、加音效（规则见 [docs/WORKLOG.md](docs/WORKLOG.md) 的「音频：配置列表 + 常驻音」）、加表现，都只在**监听侧**加，
-不改发射方，也不新增事件名到业务代码里。§15 的开关表里不出现事件名。
+**现成事件与发射方一律不动**：接埋点（§17）、加音效（规则见 [docs/WORKLOG.md](docs/WORKLOG.md) 的「音频：配置列表 + 常驻音」）、加表现，都优先只在**监听侧**加。
+确需一个新的表现触发点时，按 `END_DROP` / `BUBBLE_SHOW` 的先例在 `GameEvent` 补一条（要出声再同步 `AudioEvent`），并在上面这张表里登记；§15 的开关表里不出现事件名。
 
 （`AudioManager` 的下拉框里有**一个不是总线事件的选项** `BUTTON_DOWN` —— 它听的是
 `AudioManager.buttons` 那几个按钮节点的 `TOUCH_START`，没进这张表、也没进 `GameEvent`。见「音频配置」。）
@@ -423,6 +424,7 @@ Canvas                          Widget 全屏
 | `progress` | 进度层整层隐藏 | `ui/ProgressController.ts` |
 | `audio` | 不注册任何音频监听（含首次触摸解锁那条全局 `input` 监听） | `audio/AudioManager.ts` |
 | `autoPlay` | 不注册任何监听，玩家自己修完为止（门槛 / 节奏在 `AutoPlayer` 上，见 §16） | `gameplay/AutoPlayer.ts` |
+| `swapAlternate` | 换节点时只做一次普通交叉淡入，不再新旧来回、频率变慢 | `gameplay/SlotSwap.ts`（挂在 `Scene_BG` 的两个实例） |
 
 **读侧与组件顺序无关**：消费方照旧写 `FeatureFlags.audio`（静态 getter），getter 每次现扫场景找那个面板实例。
 这不是绕远路：同节点的组件 `onLoad` / `onEnable` 按数组顺序走，而 `AudioManager` 就挂在 Canvas 上、

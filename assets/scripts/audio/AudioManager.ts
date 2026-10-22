@@ -26,6 +26,8 @@ export enum AudioEvent {
     PIECE_REPAIRED = 'PIECE_REPAIRED',
     REPAIR_FAILED = 'REPAIR_FAILED',
     PIECE_SHOWN = 'PIECE_SHOWN',
+    /** 剧情气泡开始播放：载荷是气泡序号 1/2/3，三条 cue 用「激活事件的槽位」各认一个 */
+    BUBBLE_SHOW = 'BUBBLE_SHOW',
     /** 胶带揭晓：每一条胶带开始擦出时抛一次（`TapeWipe.play`） */
     TAPE_STRIP = 'TAPE_STRIP',
     REPAIR_PROGRESS = 'REPAIR_PROGRESS',
@@ -57,13 +59,13 @@ export enum AudioEvent {
 const AUTO_SILENT: AudioEvent[] = [AudioEvent.PIECE_PICK, AudioEvent.PIECE_SNAP_SUCCESS];
 
 /**
- * 终局之后仍然要放的那几条：结束界面自己的音（`END_DROP`）、胜利风铃（`LEVEL_COMPLETE`）
- * 与按钮按下去的那一声（`BUTTON_DOWN`）。
- * 三者都贴在 `stopAll` 那一刻的近旁（结束界面亮出来 / 跳商店），没有这条豁免就是永远听不见 ——
+ * 关场之后仍然要放的那几条：结束界面自己的音（`END_DROP`）、胜利风铃（`LEVEL_COMPLETE`）、
+ * 按钮按压 / 轮播滑动，以及压在 `END_SHOW` 之后才起的第三句气泡（`BUBBLE_SHOW`）。
+ * 它们都贴在 `stopAll` 那一刻的近旁（结束界面亮出来 / 跳商店），没有这条豁免就是永远听不见 ——
  * 风铃最惨：最后一格吸附成功下一帧就 `mraid.open` 跳商店，`CTA_CLICK` 当场停全部；
- * 按压的那一声同理，松手就是 `CTA_CLICK`，不豁免的话它连按着的那一段都播不完。
+ * 气泡 3 同理，它和 `END_SHOW` 在同一拍，停全部会把它整句掐掉。
  */
-const POST_OVER: AudioEvent[] = [AudioEvent.END_DROP, AudioEvent.LEVEL_COMPLETE, AudioEvent.BUTTON_DOWN, AudioEvent.CAROUSEL_SLIDE];
+const POST_OVER: AudioEvent[] = [AudioEvent.END_DROP, AudioEvent.LEVEL_COMPLETE, AudioEvent.BUTTON_DOWN, AudioEvent.CAROUSEL_SLIDE, AudioEvent.BUBBLE_SHOW];
 
 /** 一条音频配置：什么时候响、响什么、多大声、什么时候停 */
 @ccclass('AudioCue')
@@ -94,6 +96,9 @@ export class AudioCue {
 
     @property({ type: Enum(AudioEvent), displayName: '结束事件', tooltip: '选「NONE」= 不主动停：一次性音效播完即止，常驻的一直循环' })
     stopEvent: AudioEvent = AudioEvent.NONE;
+
+    @property({ displayName: '激活事件的槽位', tooltip: '只对「激活事件」有效：-1 = 事件一来就播；≥0 = 只有载荷第一个参数（槽位号）等于它才播。例：只在小三序列帧那一格修复时响，就填那一格的序号' })
+    startSlot = -1;
 
     @property({ displayName: '结束事件的槽位', tooltip: '只对「结束事件」有效：-1 = 事件一来就停；≥0 = 只有载荷第一个参数（槽位号）等于它才停。例：风声「结束事件」选 PIECE_REPAIRED、这里填 0，就和 FxSnow 在同一个槽位停下' })
     stopSlot = -1;
@@ -131,8 +136,9 @@ interface Channel {
  * 3. 结束界面亮出来（`END_SHOW`）就停掉全部、也不再起新的；点 CTA 跳商店再兜一次。
  *
  * `END_SHOW` 是关场事件本身，绑在它上面的条目必然被自己的 stopAll 掐掉 ——
- * 结束界面要响的和终局才响的那两条走 `END_DROP`（logo / 按钮开始下落，晚 `bgFadeTime`，
- * 见 `CtaController`）与 `LEVEL_COMPLETE`（胜利风铃），见 `POST_OVER`。
+ * 结束界面要响的、终局才响的、以及 `END_SHOW` 之后才起的第三句气泡，都见 `POST_OVER`：
+ * `END_DROP`（logo / 按钮开始下落，晚 `bgFadeTime`）、`LEVEL_COMPLETE`（胜利风铃）、
+ * `BUBBLE_SHOW`（气泡音效，按 1 / 2 / 3 分条）。
  *
  * 条目有两种「多一个格子」：
  * - `sequence`：按顺序播的列表，每触发一次换下一条；
@@ -255,7 +261,11 @@ export class AudioManager extends Component {
                 onButton: null,
                 onStop: null,
             };
-            ch.onStart = (): void => this.playCue(ch);
+            const at = cue.startSlot;
+            ch.onStart = (idx?: number): void => {
+                if (at >= 0 && idx !== at) return;
+                this.playCue(ch);
+            };
             ch.onButton = (): void => {
                 this.unlock();
                 this.playCue(ch);
@@ -443,7 +453,7 @@ export class AudioManager extends Component {
         this.stopAll();
     }
 
-    /** 关场停全部。两条例外见 `POST_OVER` —— 它们本来就是要盖在关场那一刻上的 */
+    /** 关场停全部。例外见 `POST_OVER` —— 它们本来就是要盖在关场那一刻上的 */
     private stopAll(): void {
         this._closed = true;
         for (const ch of this._channels) {

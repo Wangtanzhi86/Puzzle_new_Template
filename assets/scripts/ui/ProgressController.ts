@@ -36,7 +36,9 @@ export class ProgressController extends Component {
     private onLevelBuilt(data: SlotData[]): void {
         this.stopTween();
         if (this.fill) this.fill.fillRange = 0;
-        if (this.label) this.label.string = '0/' + data.length;
+        let total = 0;
+        for (let i = 0; i < data.length; i++) if (!data[i].slot.prefilled) total++;
+        if (this.label) this.label.string = '0/' + total;
     }
 
     private onProgress(done: number, total: number): void {

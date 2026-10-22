@@ -53,6 +53,8 @@ export class DragController extends Component {
     private _dragging = false;
     /** 滑动模式下的「还没判方向」：按下了但还没决定是滚池子还是拿碎片，此时没有 spacer、也没 takeOut */
     private _pending = false;
+    /** 上一块修复相关表现还没演完时不许再拿下一块。计数来自 DRAG_HOLD / DRAG_UNLOCK。 */
+    private _effectHolds = 0;
 
     protected onEnable(): void {
         const content = this.pool.content;
@@ -64,6 +66,9 @@ export class DragController extends Component {
         EventBus.on(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
         EventBus.on(GameEvent.GAME_OVER, this.takeOver, this);
         EventBus.on(GameEvent.AUTO_PLAY, this.takeOver, this);
+        EventBus.on(GameEvent.DRAG_HOLD, this.onEffectHold, this);
+        EventBus.on(GameEvent.DRAG_UNLOCK, this.onEffectRelease, this);
+        EventBus.on(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
     }
 
     protected onDisable(): void {
@@ -72,6 +77,22 @@ export class DragController extends Component {
         EventBus.off(GameEvent.ORIENTATION_CHANGED, this.onOrientation, this);
         EventBus.off(GameEvent.GAME_OVER, this.takeOver, this);
         EventBus.off(GameEvent.AUTO_PLAY, this.takeOver, this);
+        EventBus.off(GameEvent.DRAG_HOLD, this.onEffectHold, this);
+        EventBus.off(GameEvent.DRAG_UNLOCK, this.onEffectRelease, this);
+        EventBus.off(GameEvent.LEVEL_BUILT, this.onLevelBuilt, this);
+        this._effectHolds = 0;
+    }
+
+    private onEffectHold(): void {
+        this._effectHolds++;
+    }
+
+    private onEffectRelease(): void {
+        if (this._effectHolds > 0) this._effectHolds--;
+    }
+
+    private onLevelBuilt(): void {
+        this._effectHolds = 0;
     }
 
     /** 摘掉 `content` 上的触摸监听。最后一个监听被移除时引擎会把整个节点处理器移出派发表，
@@ -89,7 +110,7 @@ export class DragController extends Component {
     }
 
     private onStart(e: EventTouch): void {
-        if (this._entry) return;
+        if (this._entry || this._effectHolds > 0) return;
         const at = e.getUILocation();
         const entry = this.pick(at);
         if (!entry) return;

@@ -23,10 +23,10 @@ const wanted = {
     TrailEmitter: [],
     RepairSweep: ['sweepEffect'],
     RepairReveal: [],
+    SlotSequence: ['watch', 'frames'],
     CircleReveal: ['revealEffect'],
     FireworkReveal: ['revealEffect', 'burst'],
     RadialSweep: ['sweepEffect'],
-    PrefillFlight: [],
     BrushReveal: ['brushEffect'],
     StickerApply: ['frontEffect', 'backEffect'],
     SceneBgSwap: ['brushEffect', 'revealView', 'dust'],
@@ -73,15 +73,6 @@ const out = { found: {}, missing: [], canvasOwn: canvas.components.map((c) => cc
         }
     }
     for (const c of n.children) checkSwap(c);
-})(canvas);
-// 勾了「开局预填」的槽位，靠 EffectLayer 上的 PrefillFlight 在开场后补演「碎片飞进去」；
-// 少了它，那格会一直停在「已铺好」，进度从 0 起，玩家看不到预放置的过程
-(function checkPrefill(n) {
-    const slot = n.getComponent('PieceSlot');
-    if (slot && slot.prefilled && !canvas.getChildByName('EffectLayer').getComponent('PrefillFlight')) {
-        out.missing.push('PieceSlot@' + n.name + ' 勾了开局预填，但 EffectLayer 没挂 PrefillFlight，不会补演飞入');
-    }
-    for (const c of n.children) checkPrefill(c);
 })(canvas);
 // 两种状态的槽位：配了「达标后的修复图」就必须配「前置槽位」—— 不配前置 `meetsRequires()` 恒为 true，
 // 永远走达标那条，失败分支（展示未达标那张 + 抛 REPAIR_FAILED）一次都走不到

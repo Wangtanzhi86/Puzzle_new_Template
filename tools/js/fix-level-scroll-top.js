@@ -1,0 +1,14 @@
+const content = cc.director.getScene().getChildByPath('Canvas/Change/ScrollView/view/content');
+const view = content.parent;
+const ut = content.getComponent(cc.UITransform);
+const before = { y: content.position.y, viewH: view.getComponent(cc.UITransform).height, hasWidget: !!content.getComponent(cc.Widget) };
+let w = content.getComponent(cc.Widget);
+if (!w) w = content.addComponent(cc.Widget);
+w.isAlignTop = true;
+w.top = 0;
+w.isAlignBottom = false;
+w.isAlignVerticalCenter = false;
+w.alignMode = cc.Widget.AlignMode.ON_WINDOW_RESIZE;
+w.updateAlignment();
+const after = { y: content.position.y, viewH: view.getComponent(cc.UITransform).height, top: w.top, alignTop: w.isAlignTop, alignBottom: w.isAlignBottom, alignV: w.isAlignVerticalCenter, mode: w.alignMode };
+return { ok: true, result: { before, after, size: { w: ut.width, h: ut.height, ax: ut.anchorX, ay: ut.anchorY } } };

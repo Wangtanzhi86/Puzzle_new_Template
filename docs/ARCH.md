@@ -33,9 +33,9 @@ assets/scripts/
 │   ├── DragController.ts    拖拽输入（触摸事件 → 位置更新）
 │   ├── AutoPlayer.ts        自动打关：玩家修够门槛后系统接管，剩下的碎片一批一批（默认 2 屏）飞过去吸附
 │   ├── SnapSystem.ts        吸附判定（距离 < snapRadius → 吸附）
-│   ├── RepairSystem.ts      修复流程：单块修复 + 进度 + 总修复（预填格等 `PREFILL_DONE` 才算进度）
-│   ├── PrefillFlight.ts     预填格补演：开场后碎片从池子飞进缺口，落到中心再走该格揭晓
+│   ├── RepairSystem.ts      修复流程：单块修复 + 进度 + 总修复（只数非预填槽位）
 │   ├── SlotSwap.ts          某格修好时把一组节点交叉淡入淡出换成另一组（换图 / 换人）
+│   ├── SlotSequence.ts      某格修好时在本节点把一组序列帧播一遍，停在末帧（小三换状态）
 │   ├── PieceGlow.ts         拖动亮边
 │   ├── TrailEmitter.ts      拖动拖尾
 │   ├── RepairSweep.ts       修复扫光（单块 / 总修复）

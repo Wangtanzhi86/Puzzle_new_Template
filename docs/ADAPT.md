@@ -95,6 +95,11 @@
 - 转屏时若碎片正在被拖动，取消拖动并弹回原位（复用 `PIECE_SNAP_FAIL` 流程）。
 - ⚠️ **编辑器场景面板看不出撑满的效果**：编辑模式恒按 `getDesignResolutionSize()` 算，画布永远 720×1280。
   撑满只发生在运行时（Game View / 产物）。
+- **选关 `ScrollView/view/content` 的顶边靠 Widget 跟，不写死 y**：content 锚点在顶，但长屏
+  `FIXED_WIDTH` 会把 `view` 拉高；`content.position.y` 若还是 1280 稿的 `viewH/2`（550），
+  首行就会往下坠 —— 屏幕越长，顶部空得越多。现在 content 挂 Widget（`isAlignTop`、`top = 0`、
+  `alignMode = ON_WINDOW_RESIZE`），只在画布策略变化时对齐一次，不跟 ScrollView 的滚动量打架。
+  接线 `tools/js/fix-level-scroll-top.js`；重建选关的 `tools/js/mount-level-select.js` 也已同步。
 
 ### 7.2 安全区与 SDK 占用区
 

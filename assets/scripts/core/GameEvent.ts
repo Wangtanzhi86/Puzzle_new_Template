@@ -13,8 +13,8 @@ export enum GameEvent {
     PIECE_REPAIRED = 'PIECE_REPAIRED',
     REPAIR_FAILED = 'REPAIR_FAILED',
     PIECE_SHOWN = 'PIECE_SHOWN',
-    /** 预填那格的补演（碎片飞进来 + 揭晓）演完。`RepairSystem` 凭它把这一格算进进度 */
-    PREFILL_DONE = 'PREFILL_DONE',
+    /** 剧情气泡开始播放（载荷：气泡序号 1/2/3）。`BubbleSequence` 发，`AudioManager` 听 */
+    BUBBLE_SHOW = 'BUBBLE_SHOW',
     /** 胶带揭晓里一条胶带开始擦出的那一瞬。只有配了 TapeWipe 的槽位会抛 */
     TAPE_STRIP = 'TAPE_STRIP',
     REPAIR_PROGRESS = 'REPAIR_PROGRESS',
@@ -26,6 +26,9 @@ export enum GameEvent {
     GUIDE_HIDE = 'GUIDE_HIDE',
     GUIDE_HOLD = 'GUIDE_HOLD',
     GUIDE_RESUME = 'GUIDE_RESUME',
+    /** 上一块修复相关表现开始 / 结束，`DragController` 凭这一对事件锁住下一块的拿起 */
+    DRAG_HOLD = 'DRAG_HOLD',
+    DRAG_UNLOCK = 'DRAG_UNLOCK',
     /** 引导演到某一遍、当前正指着池里那块碎片（载荷：槽位序号）。RadialSweep 凭它按格播描边 */
     GUIDE_PIECE = 'GUIDE_PIECE',
     CTA_SHOW = 'CTA_SHOW',

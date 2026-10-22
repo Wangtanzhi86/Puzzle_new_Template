@@ -12,7 +12,7 @@ const { ccclass, property } = _decorator;
  * 循环播；玩家一碰屏幕就立刻收掉，再空闲一段延迟后从头来一遍，直到通关。
  *
  * 编排对齐 CopyPuzzle 的 `TutorialController`：
- * 第一次 0.5s（`firstDelay`）、之后 3s（`idleDelay`）才出现；有预填槽位时先等它演完再等 `prefillDelay`（2s）；**拖动途中手指/副本的大小与透明度都不变**，
+ * 第一次 0.5s（`firstDelay`）、之后 3s（`idleDelay`）才出现；**拖动途中手指/副本的大小与透明度都不变**，
  * 只在**到位那一刻**手指做一次缩放脉冲再淡出、副本同时淡出，等 `loopGap` 后重播。
  * 收起时整棵根节点 0.3s（`hideTime`）淡出再隐藏，不是硬切。
  *
@@ -40,14 +40,11 @@ export class GuideController extends Component {
     @property({ type: Node, displayName: '碎片池触摸区', tooltip: '填池子的 content：按在碎片池条带的空白处也会收掉引导（那一带的触摸被 content 认领，全局 input 收不到）。留空只认全局触摸 + PIECE_PICK' })
     poolTouch: Node = null;
 
-    @property({ displayName: '第一次出现前等待（秒）', tooltip: '对齐 CopyPuzzle 的 firstDelay；有预填槽位时不用这个值' })
+    @property({ displayName: '第一次出现前等待（秒）', tooltip: '对齐 CopyPuzzle 的 firstDelay' })
     firstDelay = 0.5;
 
     @property({ displayName: '之后每次出现前等待（秒）', tooltip: '玩家碰一下收掉后，再等这么久重新出现' })
     idleDelay = 3;
-
-    @property({ displayName: '预填演完后再等（秒）', tooltip: '有预填槽位时：等它的飞入 + 揭晓全部演完，再等这么久才第一次出现' })
-    prefillDelay = 2;
 
     @property({ displayName: '两遍之间的间隔（秒）', tooltip: '到位、淡完之后等这么久再重播（CopyPuzzle 的 moveInterval）' })
     loopGap = 1.5;
@@ -92,11 +89,6 @@ export class GuideController extends Component {
     private _wasShown = false;
     /** 正在飞的动画段数。> 0 时计时器停住 —— 引导绝不盖在动画上 */
     private _holds = 0;
-    /** 还有几格预填没演完。> 0 时不排第一次出现，等它们全演完再等 `prefillDelay` */
-    private _prefillsLeft = 0;
-    /** 预填已演完、正在等 `prefillDelay` 的那段：玩家碰屏幕不打断这个等待 */
-    private _prefillWait = false;
-
     protected onEnable(): void {
         this.hide(true);
         if (!FeatureFlags.guide) return;
@@ -110,7 +102,6 @@ export class GuideController extends Component {
         EventBus.on(GameEvent.AUTO_PLAY, this.onComplete, this);
         EventBus.on(GameEvent.GUIDE_HOLD, this.onHold, this);
         EventBus.on(GameEvent.GUIDE_RESUME, this.onResume, this);
-        EventBus.on(GameEvent.PREFILL_DONE, this.onPrefillDone, this);
         input.on(Input.EventType.TOUCH_START, this.onTouch, this);
         if (this.poolTouch) this.poolTouch.on(Node.EventType.TOUCH_START, this.onTouch, this);
     }
@@ -125,7 +116,6 @@ export class GuideController extends Component {
         EventBus.off(GameEvent.AUTO_PLAY, this.onComplete, this);
         EventBus.off(GameEvent.GUIDE_HOLD, this.onHold, this);
         EventBus.off(GameEvent.GUIDE_RESUME, this.onResume, this);
-        EventBus.off(GameEvent.PREFILL_DONE, this.onPrefillDone, this);
         input.off(Input.EventType.TOUCH_START, this.onTouch, this);
         if (this.poolTouch) this.poolTouch.off(Node.EventType.TOUCH_START, this.onTouch, this);
         this.hide(true);
@@ -134,8 +124,6 @@ export class GuideController extends Component {
     private onLevelBuilt(data: SlotData[]): void {
         this._data = data;
         this._holds = 0;
-        this._prefillWait = false;
-        this._prefillsLeft = data.filter((d) => d.slot.prefilled).length;
     }
 
     /** 池里第一块碎片就是这一遍的主角 */
@@ -145,7 +133,7 @@ export class GuideController extends Component {
     }
 
     private onTouch = (): void => {
-        if (this._done || this._prefillWait) return;
+        if (this._done) return;
         this.hide();
         this.armIdle();
     };
@@ -168,16 +156,6 @@ export class GuideController extends Component {
         if (this._holds === 0) this.armIdle();
     };
 
-    /** 预填格演完一格：还有就继续等；最后一格演完，从这一刻起算 `prefillDelay` */
-    private onPrefillDone = (): void => {
-        if (this._prefillsLeft <= 0) return;
-        this._prefillsLeft--;
-        if (this._prefillsLeft === 0) {
-            this._prefillWait = true;
-            this.armIdle(this.prefillDelay);
-        }
-    };
-
     /** 转屏 / 撑满：画布尺寸变了，正在飞的那一遍拿的都是旧世界坐标（起点是碎片、终点是缺口中心，
      *  两个都会跟着 Widget 重排挪位）。**不能只重设 tween 终点** —— Tween 不支持改目标值。所以停掉这一遍，
      *  立刻从 `show()` 重来：`play()` 里起点终点都是现读的，重来一遍自然就对准了新位置。 */
@@ -190,9 +168,9 @@ export class GuideController extends Component {
     };
 
     private armIdle(delay = -1): void {
-        if (this._done || this._holds > 0 || this._prefillsLeft > 0) return;
+        if (this._done || this._holds > 0) return;
         this.unschedule(this.show);
-        const wait = delay >= 0 ? delay : (this._prefillWait ? this.prefillDelay : (this._wasShown ? this.idleDelay : this.firstDelay));
+        const wait = delay >= 0 ? delay : (this._wasShown ? this.idleDelay : this.firstDelay);
         this.scheduleOnce(this.show, wait);
     }
 
@@ -206,7 +184,6 @@ export class GuideController extends Component {
         if (!this._ghostUT) return;
         this._showing = true;
         this._wasShown = true;
-        this._prefillWait = false;
         this.root.active = true;
         this._rootOpacity.opacity = 255;
         this.next();

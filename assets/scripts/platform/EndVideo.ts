@@ -43,12 +43,6 @@ export class EndVideo extends Component {
     /** 元数据还没到时 scheduleFade 的重试次数，别无限等 */
     private _fadeTries = 0;
 
-    /** 画面先藏着（等和静帧对齐的同一帧再揭开），见 `playCovered` */
-    private _covered = false;
-
-    /** 藏着的画面什么时候可以揭 —— 元数据到齐后再等两帧 */
-    private _ready: (() => void) | null = null;
-
     protected onEnable(): void {
         EventBus.on(GameEvent.ORIENTATION_CHANGED, this.fit, this);
     }
@@ -61,6 +55,7 @@ export class EndVideo extends Component {
         this.player.node.off(VideoPlayer.EventType.CLICKED, this.done, this);
         this.player.node.off(VideoPlayer.EventType.META_LOADED, this.onMeta, this);
         this.player.stop();
+        this.hideBox();
         this._done = null;
     }
 
@@ -69,10 +64,9 @@ export class EndVideo extends Component {
         if (!this.player) return false;
         this._done = onDone;
         this._fadeTries = 0;
-        this._covered = false;
-        this._ready = null;
         this.node.active = true;
         this.clearFade();
+        this.showBox();
         this.player.node.on(VideoPlayer.EventType.COMPLETED, this.done, this);
         this.player.node.on(VideoPlayer.EventType.CLICKED, this.done, this);
         this.player.node.on(VideoPlayer.EventType.META_LOADED, this.onMeta, this);
@@ -82,31 +76,6 @@ export class EndVideo extends Component {
         this.scheduleFade();
         this.scheduleOnce(this.done, this.fallbackTime);
         return true;
-    }
-
-    /** 起播但把画面藏着，等调用方在「静帧和视频首帧对齐」的同一帧 `reveal()` 揭开 —— 中间观众只看到一张静图。
-     *  `onReady` = 元数据到齐、第一个非空帧已解出来（大约 metadata 后 0.05s），调用方拿它决定何时交接。 */
-    playCovered(onDone: () => void, onReady: () => void): boolean {
-        if (!this.play(onDone)) return false;
-        this._covered = true;
-        this._ready = onReady;
-        this.clearFade();
-        const v = this.player.nativeVideo;
-        if (v) v.style.opacity = '0';
-        return true;
-    }
-
-    /** 揭开画面。藏、揭必须是同一套样式且不带 transition —— 一帧之内就得换过来，慢了会闪一下底下的游戏 */
-    reveal(): void {
-        if (!this._covered) return;
-        this._covered = false;
-        this._ready = null;
-        const v = this.player.nativeVideo;
-        if (v) {
-            v.style.transition = '';
-            v.style.opacity = '';
-        }
-        this.scheduleFade();
     }
 
     /** 起播。**先试带声音**：结尾路前面必然有过触摸（玩家得拖碎片），页面已经拿到用户激活，
@@ -128,19 +97,11 @@ export class EndVideo extends Component {
     private onMeta = (): void => {
         this.fit();
         this.scheduleFade();
-        if (this._covered && this._ready) this.scheduleOnce(this.markReady, 0.05);
-    };
-
-    private markReady = (): void => {
-        const cb = this._ready;
-        if (!cb) return;
-        this._ready = null;
-        cb();
     };
 
     /** 按「片长 − fadeOut」排一次淡出。元数据还没到就隔 0.1s 再问，问到 duration 有值为止 */
     private scheduleFade = (): void => {
-        if (this.fadeOut <= 0 || this._covered) return;
+        if (this.fadeOut <= 0) return;
         const v = this.player.nativeVideo;
         const dur = v ? v.duration : NaN;
         if (!isFinite(dur) || dur <= 0) {
@@ -165,12 +126,25 @@ export class EndVideo extends Component {
         v.style.opacity = '';
     }
 
+    /** 把元素从版面里摘掉（`display:none`）。引擎停播只设 `visibility:hidden`，而 `fit()`
+     *  把元素盒子按 cover 放大过 —— 盒子本身比窗口大，页面没 `overflow:hidden` 时它会在右侧 / 下方
+     *  撑出滚动条（2026-10-22 实锤：480×854 的片子放进 1920×1280 画布、k=4 ⇒ 盒子约 1200×2135 CSS px）。
+     *  宽度 / 高度 / transform 一个字都不动，`play()` 里把 `display` 放回来就行。 */
+    private hideBox(): void {
+        const v = this.player && this.player.nativeVideo;
+        if (v) v.style.display = 'none';
+    }
+
+    private showBox(): void {
+        const v = this.player && this.player.nativeVideo;
+        if (v) v.style.display = '';
+    }
+
     /** 收摊。`COMPLETED` / `CLICKED` / 兜底三条都走这儿，`_done` 先清掉所以再进来就直接返回 */
     private done = (): void => {
         const cb = this._done;
         if (!cb) return;
         this._done = null;
-        this._ready = null;
         this.node.active = false;
         cb();
     };

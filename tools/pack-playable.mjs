@@ -14,6 +14,8 @@
  *   node tools/pack-playable.mjs --channel google # 只出某一份
  *   node tools/pack-playable.mjs --report         # 只打印体积明细，不写文件
  *   node tools/pack-playable.mjs --no-webp        # 不转 WebP（也就不需要 @jsquash 依赖）
+ *   node tools/pack-playable.mjs --tag q88 --ui-quality 88 --photo-quality 80
+ *        # 按标签另存到 build/q88/，并指定 UI / 照片 / 序列帧的有损质量（默认 90 / 86）
  *   node tools/pack-playable.mjs --base64         # 用 base64 代替 base85（体积约 +6%）
  *   node tools/pack-playable.mjs --allow-placeholder  # 商店链接还是占位符也放行（只用于开发期）
  *   node tools/pack-playable.mjs --in <目录> --out <文件>   # --out 隐含「只出 AppLovin 那一份」
@@ -50,7 +52,9 @@ const warn = (m) => console.warn('  ⚠️  ' + m);
 // ── 参数 ────────────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
-  const o = { build: 'build/web-mobile', out: null, channel: null, webp: true, base64: false, report: false, allowPlaceholder: false };
+  // 90 / 86 是 2026-10-22 从 94 / 92 降下来的：当时产物 5.15MB，超 5MB 红线 0.15MB；
+  // 降到 90 / 86 后 4.82MB。再往上加素材导致超限时，先降档或加 --tag，别动 5MB 上限。
+  const o = { build: 'build/web-mobile', out: null, channel: null, webp: true, base64: false, report: false, allowPlaceholder: false, tag: null, uiQuality: 90, photoQuality: 86 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--build' || a === '--in') o.build = argv[++i];
@@ -59,6 +63,9 @@ function parseArgs(argv) {
     else if (a === '--no-webp') o.webp = false;
     else if (a === '--base64') o.base64 = true;
     else if (a === '--report') o.report = true;
+    else if (a === '--tag') o.tag = argv[++i];
+    else if (a === '--ui-quality') o.uiQuality = Number(argv[++i]);
+    else if (a === '--photo-quality') o.photoQuality = Number(argv[++i]);
     else if (a === '--allow-placeholder') o.allowPlaceholder = true;
     else if (a === '--help' || a === '-h') o.help = true;
     else throw new Error('不认识的参数：' + a);
@@ -140,6 +147,8 @@ ${channel.extraHead}
 <meta name="full-screen" content="yes">
 <style>
 ${read('style.css').trim()}
+ /* Playable 整屏不滚动：DOM 视频放大后的布局盒会撑出滚动条（见 docs/worklog/08-屏幕适配与拼图框.md） */
+ html, body { overflow: hidden; }
 </style>
 </head>
 <body>
@@ -288,7 +297,8 @@ async function main() {
   }
 
   const channels = selectChannels(options);
-  const outDir = path.dirname(options.build);
+  const outDir = options.tag ? path.join(path.dirname(options.build), options.tag) : path.dirname(options.build);
+  if (options.tag) fs.mkdirSync(outDir, { recursive: true });
   const outFor = (ch) => (options.out && channels.length === 1 ? options.out : path.join(outDir, ch.out));
 
   console.log('★ 试玩打包　' + channels.map((c) => c.label).join(' + '));
@@ -316,9 +326,13 @@ async function main() {
   checkStoreLinks(files, options);
 
   if (options.webp) {
-    const w = await toWebp(files);
+    const w = await toWebp(files, { uiQuality: options.uiQuality, photoQuality: options.photoQuality });
     const after = files.reduce((t, f) => t + f.data.length, 0);
-    if (!w.skipped) console.log(`WebP：${w.converted} 张转了，省 ${mb(w.saved)}，现在 ${mb(after)}`);
+    if (!w.skipped) {
+      console.log(`WebP：${w.converted} 张转了，省 ${mb(w.saved)}，现在 ${mb(after)}`);
+      const detail = Object.entries(w.byType || {}).map(([k, v]) => `${k} ${v.count} 张省 ${mb(v.saved)}`).join('，');
+      if (detail) console.log(`         ${detail}（UI q${options.uiQuality} / 照片序列帧 q${options.photoQuality}）`);
+    }
   }
 
   // 三份产物共用的那一大块：拼容器 → gzip → 编码 → 自检。只算一次 ——

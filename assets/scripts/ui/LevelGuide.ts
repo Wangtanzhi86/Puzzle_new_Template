@@ -1,4 +1,4 @@
-import { _decorator, Component, Input, input, Node, ScrollView, Tween, tween, UITransform, Vec3 } from 'cc';
+import { _decorator, Component, Input, input, Node, screen, ScrollView, Tween, tween, UITransform, Vec3 } from 'cc';
 
 const { ccclass, property } = _decorator;
 
@@ -39,7 +39,11 @@ export class LevelGuide extends Component {
             this.scroll.node.on(ScrollView.EventType.SCROLLING, this.pause, this);
             this.scroll.node.on(ScrollView.EventType.SCROLL_ENDED, this.onRelease, this);
         }
-        this.play();
+        screen.on('window-resize', this.onResize, this);
+        // 首帧的 Widget / 选关 content 还没对齐，这时读第一关世界坐标会拿到设计稿 1280 的旧位置
+        // （长屏第一关已经上移，手指却停在下面）。先藏手，等下一帧布局落定再起播。
+        this.stopTween();
+        this.scheduleOnce(this.restart, 0);
     }
 
     protected onDisable (): void {
@@ -51,15 +55,30 @@ export class LevelGuide extends Component {
             this.scroll.node.off(ScrollView.EventType.SCROLLING, this.pause, this);
             this.scroll.node.off(ScrollView.EventType.SCROLL_ENDED, this.onRelease, this);
         }
+        screen.off('window-resize', this.onResize, this);
         this.unschedule(this.tryPlay);
+        this.unschedule(this.restart);
         this.stopTween();
     }
 
     /** 一碰屏幕 / 开始滚动：先停下 */
     pause (): void {
         this.unschedule(this.tryPlay);
+        this.unschedule(this.restart);
         this.stopTween();
     }
+
+    /** 窗口尺寸变了：content 的 Widget 会重新贴顶，等下一帧再按第一关的新世界坐标重摆手指 */
+    private onResize = (): void => {
+        this.unschedule(this.tryPlay);
+        this.unschedule(this.restart);
+        this.stopTween();
+        this.scheduleOnce(this.restart, 0);
+    };
+
+    private restart = (): void => {
+        this.play();
+    };
 
     private onRelease (): void {
         this.unschedule(this.tryPlay);
